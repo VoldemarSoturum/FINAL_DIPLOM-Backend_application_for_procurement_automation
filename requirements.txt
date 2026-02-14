@@ -1,0 +1,21 @@
+Django
+djangorestframework
+
+# async tasks
+celery
+
+# utils
+requests
+ujson
+PyYAML
+
+# password reset via API
+django-rest-passwordreset
+
+# recommended requirements
+python-decouple
+psycopg2-binary
+drf-spectacular
+djangorestframework-simplejwt
+
+python-dotenv
