@@ -1,6 +1,4 @@
-from django.db import models
-
-# Create your models here.
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -8,6 +6,16 @@ from django.utils import timezone
 class Shop(models.Model):
     name = models.CharField(max_length=255, unique=True)
     url = models.URLField(max_length=500, blank=True)
+
+    # Владелец магазина/поставщик (важно для импорта и API партнёра)
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="shop",
+    )
+
     state = models.BooleanField(default=True, help_text="Принимает ли поставщик заказы")
 
     created_at = models.DateTimeField(default=timezone.now, editable=False)
@@ -52,6 +60,10 @@ class ProductInfo(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="product_infos")
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name="product_infos")
 
+    # Поля из YAML-прайса (goods[].id / goods[].model)
+    external_id = models.PositiveIntegerField(null=True, blank=True, db_index=True)
+    model = models.CharField(max_length=80, blank=True)
+
     name = models.CharField(max_length=255, help_text="Название позиции у поставщика")
     quantity = models.PositiveIntegerField(default=0)
 
@@ -63,7 +75,8 @@ class ProductInfo(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["product", "shop"], name="uniq_product_shop_info"),
+            # Для импорта обновляем прайс по (shop, external_id)
+            models.UniqueConstraint(fields=["shop", "external_id"], name="uniq_shop_external_id"),
         ]
         indexes = [
             models.Index(fields=["shop"]),

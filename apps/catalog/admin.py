@@ -1,15 +1,12 @@
-from django.contrib import admin
-
 # Register your models here.
 from django.contrib import admin
 from .models import Shop, Category, Product, ProductInfo, Parameter, ProductParameter
 
-
 @admin.register(Shop)
 class ShopAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "state", "url", "created_at")
+    list_display = ("id", "name", "state", "user", "url", "created_at")
     list_filter = ("state",)
-    search_fields = ("name", "url")
+    search_fields = ("name", "url", "user__username", "user__email")
 
 
 @admin.register(Category)
@@ -28,9 +25,9 @@ class ProductAdmin(admin.ModelAdmin):
 
 @admin.register(ProductInfo)
 class ProductInfoAdmin(admin.ModelAdmin):
-    list_display = ("id", "product", "shop", "name", "quantity", "price", "price_rrc")
+    list_display = ("id", "external_id", "model", "product", "shop", "name", "quantity", "price", "price_rrc")
     list_filter = ("shop",)
-    search_fields = ("product__name", "name", "shop__name")
+    search_fields = ("product__name", "name", "shop__name", "model")
 
 @admin.register(Parameter)
 class ParameterAdmin(admin.ModelAdmin):
