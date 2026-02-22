@@ -27,6 +27,18 @@ except admin.sites.NotRegistered:
 class UserAdmin(DjangoUserAdmin):
     inlines = [UserProfileInline]
 
+    # чтобы не было N+1 запросов к профилю
+    list_select_related = ("profile",)
+
+    # добавляем колонку роли в список пользователей
+    list_display = DjangoUserAdmin.list_display + ("get_role",)
+
+    def get_role(self, obj):
+        return getattr(getattr(obj, "profile", None), "role", "-")
+
+    get_role.short_description = "Role"
+    get_role.admin_order_field = "profile__role"
+
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
     list_display = ("id", "user", "role", "created_at", "updated_at")
