@@ -72,3 +72,33 @@ class ProductInfo(models.Model):
 
     def __str__(self) -> str:
         return f"{self.product} @ {self.shop}"
+
+
+class Parameter(models.Model):
+    name = models.CharField(max_length=255, unique=True)
+
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class ProductParameter(models.Model):
+    product_info = models.ForeignKey(ProductInfo, on_delete=models.CASCADE, related_name="parameters")
+    parameter = models.ForeignKey(Parameter, on_delete=models.CASCADE, related_name="product_parameters")
+    value = models.CharField(max_length=255)
+
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["product_info", "parameter"], name="uniq_productinfo_parameter"),
+        ]
+        indexes = [
+            models.Index(fields=["parameter"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.product_info}: {self.parameter}={self.value}"
