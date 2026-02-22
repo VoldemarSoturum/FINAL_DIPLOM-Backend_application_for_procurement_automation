@@ -10,6 +10,7 @@ from apps.users.models import UserProfile
 from .services.importer import import_price_from_url
 
 from apps.catalog.models import Shop
+from django.db import transaction
 
 class PartnerUpdateAPIView(APIView):
     """
@@ -74,3 +75,61 @@ class PartnerStateAPIView(APIView):
         shop.save(update_fields=["state"])
 
         return Response({"Status": True, "shop": shop.name, "state": shop.state}, status=status.HTTP_200_OK)
+class PartnerShopAPIView(APIView):
+    """
+    POST /api/partner/shop/
+    body: {"name": "...", "url": "..."}
+    Create/bind shop to supplier (only if supplier has no shop yet).
+    """
+
+    def post(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return Response({"Status": False, "Error": "Log in required"}, status=status.HTTP_403_FORBIDDEN)
+
+        role = getattr(getattr(request.user, "profile", None), "role", None)
+        if role != UserProfile.Role.SUPPLIER:
+            return Response({"Status": False, "Error": "Only for suppliers"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Уже привязан магазин?
+        existing = Shop.objects.filter(user=request.user).first()
+        if existing:
+            return Response(
+                {"Status": False, "Error": "Shop already bound to this supplier", "shop": existing.name},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        name = (request.data.get("name") or "").strip()
+        url = (request.data.get("url") or "").strip()
+
+        if not name:
+            return Response({"Status": False, "Error": "name is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            shop = Shop.objects.filter(name=name).select_for_update().first()
+
+            if shop:
+                # Если магазин уже закреплён за другим поставщиком — запрещаем
+                if shop.user_id and shop.user_id != request.user.id:
+                    return Response(
+                        {"Status": False, "Error": "Shop name is already used by another supplier"},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                # Иначе (shop.user is None) — привязываем
+                shop.user = request.user
+                if url:
+                    shop.url = url
+                shop.save(update_fields=["user", "url"] if url else ["user"])
+
+                return Response(
+                    {"Status": True, "shop": shop.name, "url": shop.url, "state": shop.state},
+                    status=status.HTTP_200_OK,
+                )
+
+            # Создаём новый
+            shop = Shop.objects.create(name=name, url=url, user=request.user, state=True)
+
+        return Response(
+            {"Status": True, "shop": shop.name, "url": shop.url, "state": shop.state},
+            status=status.HTTP_201_CREATED,
+        )
