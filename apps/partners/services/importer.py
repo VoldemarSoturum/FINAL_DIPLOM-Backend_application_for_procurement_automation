@@ -39,6 +39,9 @@ def import_price_from_url(*, user, url: str) -> dict[str, Any]:
 
     with transaction.atomic():
         shop, _ = Shop.objects.get_or_create(name=shop_name)
+        # Запрет импорта, если Shop выключен(state=False)
+        if not shop.state:
+            return {"Status": False, "Error": "Shop is disabled (state=false)", "http_status": 403}
         # Привязываем магазин к текущему поставщику (если пусто)
         if shop.user_id is None:
             shop.user = user
