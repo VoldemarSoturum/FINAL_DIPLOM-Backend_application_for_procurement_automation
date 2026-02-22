@@ -27,7 +27,7 @@ INSTALLED_APPS = [
     "django_rest_passwordreset",
 
     # Local apps
-    "apps.users",
+    "apps.users.apps.UsersConfig",
     "apps.catalog",
     "apps.orders",
     "apps.partners",
