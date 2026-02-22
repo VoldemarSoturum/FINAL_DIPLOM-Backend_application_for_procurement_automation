@@ -81,6 +81,76 @@ class PartnerShopAPIView(APIView):
     body: {"name": "...", "url": "..."}
     Create/bind shop to supplier (only if supplier has no shop yet).
     """
+    """
+        POST  /api/partner/shop/   -> create/bind (only if no shop yet)
+        GET   /api/partner/shop/   -> get bound shop
+        PATCH /api/partner/shop/   -> update bound shop (name/url)
+        """
+
+    def _check_supplier(self, request):
+        if not request.user.is_authenticated:
+            return Response({"Status": False, "Error": "Log in required"}, status=status.HTTP_403_FORBIDDEN)
+        role = getattr(getattr(request.user, "profile", None), "role", None)
+        if role != UserProfile.Role.SUPPLIER:
+            return Response({"Status": False, "Error": "Only for suppliers"}, status=status.HTTP_403_FORBIDDEN)
+        return None
+
+    def get(self, request, *args, **kwargs):
+        denied = self._check_supplier(request)
+        if denied:
+            return denied
+
+        shop = Shop.objects.filter(user=request.user).first()
+        if not shop:
+            return Response({"Status": False, "Error": "No shop bound to this supplier yet"},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        return Response(
+            {"Status": True, "shop": shop.name, "url": shop.url, "state": shop.state},
+            status=status.HTTP_200_OK,
+        )
+
+    def patch(self, request, *args, **kwargs):
+        denied = self._check_supplier(request)
+        if denied:
+            return denied
+
+        shop = Shop.objects.filter(user=request.user).first()
+        if not shop:
+            return Response({"Status": False, "Error": "No shop bound to this supplier yet"},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        new_name = request.data.get("name")
+        new_url = request.data.get("url")
+
+        if new_name is not None:
+            new_name = str(new_name).strip()
+            if not new_name:
+                return Response({"Status": False, "Error": "name cannot be empty"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if new_url is not None:
+            new_url = str(new_url).strip()
+
+        # Если меняем name — нужно проверить уникальность
+        with transaction.atomic():
+            if new_name and new_name != shop.name:
+                conflict = Shop.objects.select_for_update().filter(name=new_name).exclude(id=shop.id).first()
+                if conflict:
+                    return Response(
+                        {"Status": False, "Error": "Shop name is already used"},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                shop.name = new_name
+
+            if new_url is not None:
+                shop.url = new_url
+
+            shop.save()
+
+        return Response(
+            {"Status": True, "shop": shop.name, "url": shop.url, "state": shop.state},
+            status=status.HTTP_200_OK,
+        )
 
     def post(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
