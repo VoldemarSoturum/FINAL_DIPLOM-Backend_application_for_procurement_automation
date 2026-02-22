@@ -27,6 +27,9 @@ except admin.sites.NotRegistered:
 class UserAdmin(DjangoUserAdmin):
     inlines = [UserProfileInline]
 
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "role", "created_at", "updated_at")
 
 @admin.register(Contact)
 class ContactAdmin(admin.ModelAdmin):
