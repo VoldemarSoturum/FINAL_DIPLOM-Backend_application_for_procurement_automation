@@ -1,12 +1,16 @@
 # apps/partners/views.py
 
+from decimal import Decimal
+
 from django.db import transaction
+from django.utils.dateparse import parse_date
 from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiResponse
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.catalog.models import Shop
+from apps.orders.models import Order, OrderItem
 from apps.users.models import UserProfile
 from .serializers import (
     PartnerUpdateSerializer,
@@ -24,6 +28,17 @@ def ok(data=None, http_status=status.HTTP_200_OK):
 
 def fail(errors, http_status=status.HTTP_400_BAD_REQUEST):
     return Response({"Status": False, "data": None, "errors": errors}, status=http_status)
+
+
+def check_supplier(request):
+    if not request.user.is_authenticated:
+        return fail("Log in required", status.HTTP_403_FORBIDDEN)
+
+    role = getattr(getattr(request.user, "profile", None), "role", None)
+    if role != UserProfile.Role.SUPPLIER:
+        return fail("Only for suppliers", status.HTTP_403_FORBIDDEN)
+
+    return None
 
 
 class PartnerUpdateAPIView(APIView):
@@ -53,12 +68,9 @@ class PartnerUpdateAPIView(APIView):
         ],
     )
     def post(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return fail("Log in required", status.HTTP_403_FORBIDDEN)
-
-        role = getattr(getattr(request.user, "profile", None), "role", None)
-        if role != UserProfile.Role.SUPPLIER:
-            return fail("Only for suppliers", status.HTTP_403_FORBIDDEN)
+        denied = check_supplier(request)
+        if denied:
+            return denied
 
         serializer = PartnerUpdateSerializer(data=request.data)
         if not serializer.is_valid():
@@ -98,24 +110,21 @@ class PartnerStateAPIView(APIView):
         ],
     )
     def post(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return fail("Log in required", status.HTTP_403_FORBIDDEN)
-
-        role = getattr(getattr(request.user, "profile", None), "role", None)
-        if role != UserProfile.Role.SUPPLIER:
-            return fail("Only for suppliers", status.HTTP_403_FORBIDDEN)
+        denied = check_supplier(request)
+        if denied:
+            return denied
 
         serializer = PartnerStateSerializer(data=request.data)
         if not serializer.is_valid():
             return fail(serializer.errors, status.HTTP_400_BAD_REQUEST)
 
-        state = serializer.validated_data["state"]
+        state_value = serializer.validated_data["state"]
 
         shop = Shop.objects.filter(user=request.user).first()
         if not shop:
             return fail("No shop bound to this supplier yet", status.HTTP_400_BAD_REQUEST)
 
-        shop.state = state
+        shop.state = state_value
         shop.save(update_fields=["state"])
 
         return ok({"shop": shop.name, "state": shop.state}, status.HTTP_200_OK)
@@ -127,16 +136,6 @@ class PartnerShopAPIView(APIView):
     GET   /api/partner/shop/   -> get bound shop
     PATCH /api/partner/shop/   -> update bound shop (name/url)
     """
-
-    def _check_supplier(self, request):
-        if not request.user.is_authenticated:
-            return fail("Log in required", status.HTTP_403_FORBIDDEN)
-
-        role = getattr(getattr(request.user, "profile", None), "role", None)
-        if role != UserProfile.Role.SUPPLIER:
-            return fail("Only for suppliers", status.HTTP_403_FORBIDDEN)
-
-        return None
 
     @extend_schema(
         responses={
@@ -157,7 +156,7 @@ class PartnerShopAPIView(APIView):
         ],
     )
     def get(self, request, *args, **kwargs):
-        denied = self._check_supplier(request)
+        denied = check_supplier(request)
         if denied:
             return denied
 
@@ -194,7 +193,7 @@ class PartnerShopAPIView(APIView):
         ],
     )
     def post(self, request, *args, **kwargs):
-        denied = self._check_supplier(request)
+        denied = check_supplier(request)
         if denied:
             return denied
 
@@ -217,11 +216,9 @@ class PartnerShopAPIView(APIView):
             shop = Shop.objects.filter(name=name).select_for_update().first()
 
             if shop:
-                # Если магазин закреплён за другим поставщиком — конфликт
                 if shop.user_id and shop.user_id != request.user.id:
                     return fail("Shop name is already used by another supplier", status.HTTP_409_CONFLICT)
 
-                # shop.user is None -> привязываем
                 shop.user = request.user
                 if url:
                     shop.url = url
@@ -231,7 +228,6 @@ class PartnerShopAPIView(APIView):
 
                 return ok({"shop": shop.name, "url": shop.url, "state": shop.state}, status.HTTP_200_OK)
 
-            # Создаём новый shop и привязываем к поставщику
             shop = Shop.objects.create(name=name, url=url, user=request.user, state=True)
 
         return ok({"shop": shop.name, "url": shop.url, "state": shop.state}, status.HTTP_201_CREATED)
@@ -248,19 +244,10 @@ class PartnerShopAPIView(APIView):
         examples=[
             OpenApiExample("Patch url", value={"url": "https://supplier1.example"}, request_only=True),
             OpenApiExample("Patch name", value={"name": "Supplier1 Shop"}, request_only=True),
-            OpenApiExample(
-                "Success response (unified)",
-                value={
-                    "Status": True,
-                    "data": {"shop": "Связной", "url": "https://supplier1.example", "state": True},
-                    "errors": None,
-                },
-                response_only=True,
-            ),
         ],
     )
     def patch(self, request, *args, **kwargs):
-        denied = self._check_supplier(request)
+        denied = check_supplier(request)
         if denied:
             return denied
 
@@ -298,3 +285,118 @@ class PartnerShopAPIView(APIView):
             shop.save()
 
         return ok({"shop": shop.name, "url": shop.url, "state": shop.state}, status.HTTP_200_OK)
+
+
+class PartnerOrdersAPIView(APIView):
+    """
+    GET /api/partner/orders/
+    Supplier sees only orders containing items from his shop.
+    """
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(response=UnifiedResponseSerializer, description="Orders list (unified)"),
+            403: OpenApiResponse(response=UnifiedResponseSerializer, description="Forbidden"),
+            400: OpenApiResponse(response=UnifiedResponseSerializer, description="Bad request"),
+        },
+        examples=[
+            OpenApiExample(
+                "Success response (unified)",
+                value={
+                    "Status": True,
+                    "data": {
+                        "orders": [
+                            {
+                                "id": 12,
+                                "dt": "2026-02-24T18:20:00Z",
+                                "status": "new",
+                                "customer": {"id": 5, "username": "client1", "email": "client1@mail.com"},
+                                "items": [
+                                    {
+                                        "id": 33,
+                                        "product_id": 7,
+                                        "product_name": "iPhone",
+                                        "quantity": 2,
+                                        "unit_price": "100.00",
+                                        "unit_price_rrc": None,
+                                        "total": "200.00",
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                    "errors": None,
+                },
+                response_only=True,
+            )
+        ],
+    )
+    def get(self, request, *args, **kwargs):
+        denied = check_supplier(request)
+        if denied:
+            return denied
+
+        shop = Shop.objects.filter(user=request.user).first()
+        if not shop:
+            return fail("No shop bound to this supplier yet", status.HTTP_400_BAD_REQUEST)
+
+        qs = (
+            OrderItem.objects.select_related("order", "order__user", "product")
+            .filter(shop=shop)
+            .exclude(order__status=Order.Status.BASKET)
+        )
+
+        status_param = request.query_params.get("status")
+        if status_param:
+            qs = qs.filter(order__status=status_param)
+
+        date_from = request.query_params.get("date_from")
+        if date_from:
+            df = parse_date(date_from)
+            if not df:
+                return fail("date_from must be YYYY-MM-DD", status.HTTP_400_BAD_REQUEST)
+            qs = qs.filter(order__dt__date__gte=df)
+
+        date_to = request.query_params.get("date_to")
+        if date_to:
+            dt_ = parse_date(date_to)
+            if not dt_:
+                return fail("date_to must be YYYY-MM-DD", status.HTTP_400_BAD_REQUEST)
+            qs = qs.filter(order__dt__date__lte=dt_)
+
+        orders_map = {}
+        for item in qs.order_by("-order__dt", "order_id", "id"):
+            order = item.order
+            key = order.id
+
+            if key not in orders_map:
+                orders_map[key] = {
+                    "id": order.id,
+                    "dt": order.dt.isoformat(),
+                    "status": order.status,
+                    "customer": {
+                        "id": order.user_id,
+                        "username": getattr(order.user, "username", ""),
+                        "email": getattr(order.user, "email", ""),
+                    },
+                    "items": [],
+                }
+
+            unit_price = item.unit_price
+            total = None
+            if unit_price is not None:
+                total = (unit_price * Decimal(item.quantity)).quantize(Decimal("0.01"))
+
+            orders_map[key]["items"].append(
+                {
+                    "id": item.id,
+                    "product_id": item.product_id,
+                    "product_name": item.product.name,
+                    "quantity": item.quantity,
+                    "unit_price": str(item.unit_price) if item.unit_price is not None else None,
+                    "unit_price_rrc": str(item.unit_price_rrc) if item.unit_price_rrc is not None else None,
+                    "total": str(total) if total is not None else None,
+                }
+            )
+
+        return ok({"orders": list(orders_map.values())}, status.HTTP_200_OK)
