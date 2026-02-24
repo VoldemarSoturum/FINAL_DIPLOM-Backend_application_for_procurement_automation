@@ -140,3 +140,95 @@ class BasketItemDetailAPIView(APIView):
 
         basket = _basket_queryset(request.user).get()
         return Response(BasketSerializer(basket).data, status=status.HTTP_200_OK)
+
+class BasketCheckoutAPIView(APIView):
+    """
+    POST /api/basket/checkout/
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(response=BasketSerializer, description="Order created (basket -> new)"),
+            409: OpenApiResponse(description="Basket empty / stock conflict / shop disabled"),
+        }
+    )
+    def post(self, request, *args, **kwargs):
+        basket = _basket_queryset(request.user).first()
+        if not basket:
+            # Корзины нет — создадим пустую и вернём конфликт (нечего оформлять)
+            _get_or_create_basket(request.user)
+            return Response({"detail": "Basket is empty"}, status=status.HTTP_409_CONFLICT)
+
+        if not basket.items.exists():
+            return Response({"detail": "Basket is empty"}, status=status.HTTP_409_CONFLICT)
+
+        with transaction.atomic():
+            # Перечитываем корзину внутри транзакции с items
+            basket = (
+                Order.objects.select_for_update()
+                .filter(id=basket.id, user=request.user, status=Order.Status.BASKET)
+                .prefetch_related(Prefetch("items", queryset=OrderItem.objects.select_related("product", "shop")))
+                .first()
+            )
+            if not basket:
+                return Response({"detail": "Basket not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            items = list(basket.items.all())
+            if not items:
+                return Response({"detail": "Basket is empty"}, status=status.HTTP_409_CONFLICT)
+
+            # Считываем и блокируем все ProductInfo, которые нужны
+            product_ids = [i.product_id for i in items]
+            shop_ids = [i.shop_id for i in items]
+
+            infos = (
+                ProductInfo.objects.select_for_update()
+                .select_related("shop", "product")
+                .filter(product_id__in=product_ids, shop_id__in=shop_ids)
+            )
+
+            info_map = {(pi.product_id, pi.shop_id): pi for pi in infos}
+
+            # Валидация перед списанием
+            for item in items:
+                pi = info_map.get((item.product_id, item.shop_id))
+                if not pi:
+                    return Response(
+                        {"detail": f"ProductInfo not found for product={item.product_id} shop={item.shop_id}"},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                if not pi.shop.state:
+                    return Response(
+                        {"detail": f"Shop '{pi.shop.name}' is disabled"},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                if pi.quantity < item.quantity:
+                    return Response(
+                        {"detail": f"Not enough stock for '{pi.name}' (have {pi.quantity}, need {item.quantity})"},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+            # Списание и фиксация цен
+            for item in items:
+                pi = info_map[(item.product_id, item.shop_id)]
+
+                item.unit_price = pi.price
+                item.unit_price_rrc = pi.price_rrc
+                item.save(update_fields=["unit_price", "unit_price_rrc"])
+
+                pi.quantity -= item.quantity
+                pi.save(update_fields=["quantity"])
+
+            basket.status = Order.Status.NEW
+            basket.save(update_fields=["status"])
+
+        # Возвращаем уже оформленный заказ
+        basket = (
+            Order.objects.filter(id=basket.id)
+            .prefetch_related(Prefetch("items", queryset=OrderItem.objects.select_related("product", "shop")))
+            .first()
+        )
+        return Response(BasketSerializer(basket).data, status=status.HTTP_200_OK)
