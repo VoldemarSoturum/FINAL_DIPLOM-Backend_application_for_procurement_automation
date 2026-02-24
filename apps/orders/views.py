@@ -1,6 +1,6 @@
-from django.shortcuts import render
-
 # Create your views here.
+from apps.orders.services.emails import send_order_email_to_admin, send_order_email_to_customer
+
 from django.db import transaction
 from django.db.models import Prefetch
 from drf_spectacular.utils import extend_schema, OpenApiResponse
@@ -231,4 +231,20 @@ class BasketCheckoutAPIView(APIView):
             .prefetch_related(Prefetch("items", queryset=OrderItem.objects.select_related("product", "shop")))
             .first()
         )
+        # Перечитаем заказ уже в статусе NEW вместе с items для письма
+        order = (
+            Order.objects.filter(id=basket.id)
+            .prefetch_related(Prefetch("items", queryset=OrderItem.objects.select_related("product", "shop")))
+            .select_related("user")
+            .first()
+        )
+
+        # Email notifications (sync, base part)
+        try:
+            send_order_email_to_customer(order)
+            send_order_email_to_admin(order)
+        except Exception as e:
+            # На базовой части можно не падать из-за email.
+            # Для продакшена — логирование + celery. To be Continued in next commits:)
+            pass
         return Response(BasketSerializer(basket).data, status=status.HTTP_200_OK)
