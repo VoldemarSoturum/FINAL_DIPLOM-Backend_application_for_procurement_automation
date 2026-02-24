@@ -1,0 +1,8 @@
+from django.urls import path
+from .views import BasketAPIView, BasketItemsAPIView, BasketItemDetailAPIView
+
+urlpatterns = [
+    path("basket/", BasketAPIView.as_view(), name="basket"),
+    path("basket/items/", BasketItemsAPIView.as_view(), name="basket-items"),
+    path("basket/items/<int:item_id>/", BasketItemDetailAPIView.as_view(), name="basket-item-detail"),
+]

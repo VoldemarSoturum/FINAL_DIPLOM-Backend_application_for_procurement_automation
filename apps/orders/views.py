@@ -1,3 +1,142 @@
 from django.shortcuts import render
 
 # Create your views here.
+from django.db import transaction
+from django.db.models import Prefetch
+from drf_spectacular.utils import extend_schema, OpenApiResponse
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from apps.catalog.models import ProductInfo
+from apps.orders.models import Order, OrderItem
+
+from .serializers import (
+    BasketSerializer,
+    BasketItemAddSerializer,
+    BasketItemUpdateSerializer,
+)
+
+
+def _get_or_create_basket(user) -> Order:
+    basket, _ = Order.objects.get_or_create(user=user, status=Order.Status.BASKET)
+    return basket
+
+
+def _basket_queryset(user):
+    return (
+        Order.objects.filter(user=user, status=Order.Status.BASKET)
+        .prefetch_related(
+            Prefetch(
+                "items",
+                queryset=OrderItem.objects.select_related("product", "shop"),
+            )
+        )
+    )
+
+
+class BasketAPIView(APIView):
+    """
+    GET /api/basket/
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: OpenApiResponse(response=BasketSerializer)})
+    def get(self, request, *args, **kwargs):
+        _get_or_create_basket(request.user)
+        basket = _basket_queryset(request.user).get()
+        return Response(BasketSerializer(basket).data, status=status.HTTP_200_OK)
+
+
+class BasketItemsAPIView(APIView):
+    """
+    POST /api/basket/items/
+    body: {"product_info_id": 123, "quantity": 2}
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=BasketItemAddSerializer,
+        responses={200: OpenApiResponse(response=BasketSerializer), 400: OpenApiResponse(description="Validation error")},
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = BasketItemAddSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        product_info_id = serializer.validated_data["product_info_id"]
+        qty = serializer.validated_data["quantity"]
+
+        product_info = (
+            ProductInfo.objects.select_related("product", "shop")
+            .filter(id=product_info_id)
+            .first()
+        )
+        if not product_info:
+            return Response({"detail": "ProductInfo not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if not product_info.shop.state:
+            return Response({"detail": "Shop is disabled"}, status=status.HTTP_409_CONFLICT)
+
+        if product_info.quantity <= 0:
+            return Response({"detail": "Out of stock"}, status=status.HTTP_409_CONFLICT)
+
+        with transaction.atomic():
+            basket = _get_or_create_basket(request.user)
+
+            item, created = OrderItem.objects.get_or_create(
+                order=basket,
+                product=product_info.product,
+                shop=product_info.shop,
+                defaults={
+                    "quantity": qty,
+                },
+            )
+            if not created:
+                item.quantity += qty
+                item.save(update_fields=["quantity"])
+
+        basket = _basket_queryset(request.user).get()
+        return Response(BasketSerializer(basket).data, status=status.HTTP_200_OK)
+
+
+class BasketItemDetailAPIView(APIView):
+    """
+    PATCH /api/basket/items/{item_id}/
+    DELETE /api/basket/items/{item_id}/
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=BasketItemUpdateSerializer,
+        responses={200: OpenApiResponse(response=BasketSerializer)},
+    )
+    def patch(self, request, item_id: int, *args, **kwargs):
+        serializer = BasketItemUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        qty = serializer.validated_data["quantity"]
+
+        basket = _get_or_create_basket(request.user)
+
+        item = OrderItem.objects.filter(order=basket, id=item_id).first()
+        if not item:
+            return Response({"detail": "Item not found in basket"}, status=status.HTTP_404_NOT_FOUND)
+
+        item.quantity = qty
+        item.save(update_fields=["quantity"])
+
+        basket = _basket_queryset(request.user).get()
+        return Response(BasketSerializer(basket).data, status=status.HTTP_200_OK)
+
+    @extend_schema(responses={200: OpenApiResponse(response=BasketSerializer)})
+    def delete(self, request, item_id: int, *args, **kwargs):
+        basket = _get_or_create_basket(request.user)
+
+        item = OrderItem.objects.filter(order=basket, id=item_id).first()
+        if not item:
+            return Response({"detail": "Item not found in basket"}, status=status.HTTP_404_NOT_FOUND)
+
+        item.delete()
+
+        basket = _basket_queryset(request.user).get()
+        return Response(BasketSerializer(basket).data, status=status.HTTP_200_OK)
