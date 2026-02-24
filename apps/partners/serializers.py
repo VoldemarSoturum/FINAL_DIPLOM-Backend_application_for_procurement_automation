@@ -28,3 +28,27 @@ class UnifiedResponseSerializer(serializers.Serializer):
     Status = serializers.BooleanField()
     data = serializers.DictField(required=False, allow_null=True)
     errors = serializers.JSONField(required=False, allow_null=True)
+
+
+
+
+class PartnerOrderItemOutSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    product_id = serializers.IntegerField()
+    product_name = serializers.CharField()
+    quantity = serializers.IntegerField()
+    unit_price = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    unit_price_rrc = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    total = serializers.DecimalField(max_digits=14, decimal_places=2, required=False, allow_null=True)
+
+
+class PartnerOrderOutSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    dt = serializers.DateTimeField()
+    status = serializers.CharField()
+    customer = serializers.DictField()
+    items = PartnerOrderItemOutSerializer(many=True)
+
+
+class PartnerOrdersDataOutSerializer(serializers.Serializer):
+    orders = PartnerOrderOutSerializer(many=True)
