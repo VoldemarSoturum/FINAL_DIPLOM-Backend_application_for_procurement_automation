@@ -21,6 +21,8 @@ from .serializers import (
 )
 from .services.importer import import_price_from_url
 
+from rest_framework.permissions import IsAuthenticated
+from apps.users.permissions import IsSupplier
 
 def ok(data=None, http_status=status.HTTP_200_OK):
     return Response({"Status": True, "data": data, "errors": None}, status=http_status)
@@ -46,6 +48,7 @@ class PartnerUpdateAPIView(APIView):
     POST /api/partner/update/
     body: {"url": "https://.../price.yaml"}
     """
+    permission_classes = [IsAuthenticated, IsSupplier]
 
     @extend_schema(
         request=PartnerUpdateSerializer,
@@ -68,9 +71,9 @@ class PartnerUpdateAPIView(APIView):
         ],
     )
     def post(self, request, *args, **kwargs):
-        denied = check_supplier(request)
-        if denied:
-            return denied
+        # denied = check_supplier(request)
+        # if denied:
+        #     return denied
 
         serializer = PartnerUpdateSerializer(data=request.data)
         if not serializer.is_valid():
@@ -91,6 +94,7 @@ class PartnerStateAPIView(APIView):
     POST /api/partner/state/
     body: {"state": true/false}
     """
+    permission_classes = [IsAuthenticated, IsSupplier]
 
     @extend_schema(
         request=PartnerStateSerializer,
@@ -110,9 +114,9 @@ class PartnerStateAPIView(APIView):
         ],
     )
     def post(self, request, *args, **kwargs):
-        denied = check_supplier(request)
-        if denied:
-            return denied
+        # denied = check_supplier(request)
+        # if denied:
+        #     return denied
 
         serializer = PartnerStateSerializer(data=request.data)
         if not serializer.is_valid():
@@ -136,6 +140,7 @@ class PartnerShopAPIView(APIView):
     GET   /api/partner/shop/   -> get bound shop
     PATCH /api/partner/shop/   -> update bound shop (name/url)
     """
+    permission_classes = [IsAuthenticated, IsSupplier]
 
     @extend_schema(
         responses={
@@ -156,9 +161,9 @@ class PartnerShopAPIView(APIView):
         ],
     )
     def get(self, request, *args, **kwargs):
-        denied = check_supplier(request)
-        if denied:
-            return denied
+        # denied = check_supplier(request)
+        # if denied:
+        #     return denied
 
         shop = Shop.objects.filter(user=request.user).first()
         if not shop:
@@ -193,9 +198,9 @@ class PartnerShopAPIView(APIView):
         ],
     )
     def post(self, request, *args, **kwargs):
-        denied = check_supplier(request)
-        if denied:
-            return denied
+        # denied = check_supplier(request)
+        # if denied:
+        #     return denied
 
         existing = Shop.objects.filter(user=request.user).first()
         if existing:
@@ -247,9 +252,9 @@ class PartnerShopAPIView(APIView):
         ],
     )
     def patch(self, request, *args, **kwargs):
-        denied = check_supplier(request)
-        if denied:
-            return denied
+        # denied = check_supplier(request)
+        # if denied:
+        #     return denied
 
         shop = Shop.objects.filter(user=request.user).first()
         if not shop:
@@ -292,6 +297,7 @@ class PartnerOrdersAPIView(APIView):
     GET /api/partner/orders/
     Supplier sees only orders containing items from his shop.
     """
+    permission_classes = [IsAuthenticated, IsSupplier]
 
     @extend_schema(
         responses={
@@ -332,9 +338,9 @@ class PartnerOrdersAPIView(APIView):
         ],
     )
     def get(self, request, *args, **kwargs):
-        denied = check_supplier(request)
-        if denied:
-            return denied
+        # denied = check_supplier(request)
+        # if denied:
+        #     return denied
 
         shop = Shop.objects.filter(user=request.user).first()
         if not shop:

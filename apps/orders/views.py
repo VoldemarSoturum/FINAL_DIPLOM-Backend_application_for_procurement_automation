@@ -1,4 +1,6 @@
 # Create your views here.
+from apps.users.permissions import IsClient
+
 from apps.orders.services.emails import send_order_email_to_admin, send_order_email_to_customer
 
 from django.db import transaction
@@ -40,7 +42,7 @@ class BasketAPIView(APIView):
     """
     GET /api/basket/
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsClient]
 
     @extend_schema(responses={200: OpenApiResponse(response=BasketSerializer)})
     def get(self, request, *args, **kwargs):
@@ -54,7 +56,7 @@ class BasketItemsAPIView(APIView):
     POST /api/basket/items/
     body: {"product_info_id": 123, "quantity": 2}
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsClient]
 
     @extend_schema(
         request=BasketItemAddSerializer,
@@ -105,7 +107,7 @@ class BasketItemDetailAPIView(APIView):
     PATCH /api/basket/items/{item_id}/
     DELETE /api/basket/items/{item_id}/
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsClient]
 
     @extend_schema(
         request=BasketItemUpdateSerializer,
@@ -145,7 +147,7 @@ class BasketCheckoutAPIView(APIView):
     """
     POST /api/basket/checkout/
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsClient]
 
     @extend_schema(
         responses={
@@ -254,7 +256,7 @@ class ClientOrdersAPIView(APIView):
     GET /api/orders/
     Returns orders of current user (excluding basket).
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsClient]
 
     @extend_schema(responses={200: OpenApiResponse(description="List of orders")})
     def get(self, request, *args, **kwargs):
