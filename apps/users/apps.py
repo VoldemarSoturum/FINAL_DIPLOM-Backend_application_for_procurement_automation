@@ -7,3 +7,4 @@ class UsersConfig(AppConfig):
 
     def ready(self):
         import apps.users.signals  # noqa
+        import apps.users.password_reset_signals  # noqa
