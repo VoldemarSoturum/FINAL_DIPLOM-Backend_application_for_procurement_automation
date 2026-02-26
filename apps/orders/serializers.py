@@ -38,3 +38,10 @@ class BasketSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = ("id", "status", "dt", "items")
+
+class OrderListItemSerializer(serializers.ModelSerializer):
+    items = BasketItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Order
+        fields = ("id", "status", "dt", "items")

@@ -248,3 +248,41 @@ class BasketCheckoutAPIView(APIView):
             # Для продакшена — логирование + celery. To be Continued in next commits:)
             pass
         return Response(BasketSerializer(basket).data, status=status.HTTP_200_OK)
+
+class ClientOrdersAPIView(APIView):
+    """
+    GET /api/orders/
+    Returns orders of current user (excluding basket).
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: OpenApiResponse(description="List of orders")})
+    def get(self, request, *args, **kwargs):
+        qs = (
+            Order.objects.filter(user=request.user)
+            .exclude(status=Order.Status.BASKET)
+            .prefetch_related(Prefetch("items", queryset=OrderItem.objects.select_related("product", "shop")))
+            .order_by("-dt")
+        )
+        data = [
+            {
+                "id": o.id,
+                "status": o.status,
+                "dt": o.dt,
+                "items": [
+                    {
+                        "id": i.id,
+                        "product_id": i.product_id,
+                        "product_name": i.product.name,
+                        "shop_id": i.shop_id,
+                        "shop_name": i.shop.name,
+                        "quantity": i.quantity,
+                        "unit_price": i.unit_price,
+                        "unit_price_rrc": i.unit_price_rrc,
+                    }
+                    for i in o.items.all()
+                ],
+            }
+            for o in qs
+        ]
+        return Response({"Status": True, "data": {"orders": data}, "errors": None}, status=status.HTTP_200_OK)
