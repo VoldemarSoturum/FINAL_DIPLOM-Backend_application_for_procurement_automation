@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
+from .models import Contact
 
 User = get_user_model()
 
@@ -17,3 +18,8 @@ class RegisterSerializer(serializers.ModelSerializer):
         user.set_password(password)
         user.save()
         return user
+class ContactSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Contact
+        fields = ("id", "type", "value", "created_at", "updated_at")
+        read_only_fields = ("id", "created_at", "updated_at")
