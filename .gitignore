@@ -22,3 +22,7 @@ media/
 
 # Logs
 *.log
+
+# Coverage
+.coverage
+htmlcov/

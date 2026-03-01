@@ -1,0 +1,5 @@
+pytest
+pytest-django
+pytest-cov
+tqdm
+model-bakery
