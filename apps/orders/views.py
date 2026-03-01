@@ -1,7 +1,6 @@
 # apps/orders/views.py
 
 from apps.users.permissions import IsClient
-from apps.orders.services.emails import send_order_email_to_admin, send_order_email_to_customer
 
 from django.db import transaction
 from django.db.models import Prefetch
@@ -13,6 +12,7 @@ from rest_framework.views import APIView
 
 from apps.catalog.models import ProductInfo
 from apps.orders.models import Order, OrderItem
+from apps.orders.tasks import send_order_emails_task
 
 from .serializers import (
     BasketSerializer,
@@ -57,7 +57,11 @@ class BasketAPIView(APIView):
         examples=[
             OpenApiExample(
                 "Unified success",
-                value={"Status": True, "data": {"basket": {"id": 1, "status": "basket", "dt": "...", "items": []}}, "errors": None},
+                value={
+                    "Status": True,
+                    "data": {"basket": {"id": 1, "status": "basket", "dt": "...", "items": []}},
+                    "errors": None,
+                },
                 response_only=True,
             )
         ],
@@ -138,8 +142,8 @@ class BasketItemDetailAPIView(APIView):
         serializer = BasketItemUpdateSerializer(data=request.data)
         if not serializer.is_valid():
             return fail(serializer.errors, status.HTTP_400_BAD_REQUEST)
-        qty = serializer.validated_data["quantity"]
 
+        qty = serializer.validated_data["quantity"]
         basket = _get_or_create_basket(request.user)
 
         item = OrderItem.objects.filter(order=basket, id=item_id).first()
@@ -243,9 +247,17 @@ class BasketCheckoutAPIView(APIView):
             basket.status = Order.Status.NEW
             basket.save(update_fields=["status"])
 
-        # Перечитаем заказ в статусе NEW (и используем его же и для ответа, и для email)
+            order_id = basket.id
+
+            # Celery: enqueue emails only AFTER transaction commit
+            def _enqueue_emails():
+                send_order_emails_task.delay(order_id)
+
+            transaction.on_commit(_enqueue_emails)
+
+        # Перечитаем заказ в статусе NEW (для ответа)
         order = (
-            Order.objects.filter(id=basket.id)
+            Order.objects.filter(id=order_id)
             .prefetch_related(Prefetch("items", queryset=OrderItem.objects.select_related("product", "shop")))
             .select_related("user")
             .first()
@@ -253,13 +265,6 @@ class BasketCheckoutAPIView(APIView):
 
         if order is None:
             return fail("Order not found after checkout", status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        try:
-            send_order_email_to_customer(order)
-            send_order_email_to_admin(order)
-        except Exception:
-            # позже вынесем в celery + логирование
-            pass
 
         return ok({"order": BasketSerializer(order).data}, status.HTTP_200_OK)
 
