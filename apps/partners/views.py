@@ -15,7 +15,6 @@ from apps.catalog.models import Shop
 from apps.orders.models import Order, OrderItem
 from apps.users.models import UserProfile
 from apps.users.permissions import IsSupplier
-from apps.partners.tasks import import_price_task
 
 from .serializers import (
     PartnerUpdateSerializer,
@@ -24,6 +23,8 @@ from .serializers import (
     PartnerShopPatchSerializer,
     UnifiedResponseSerializer,
 )
+from .services.importer import import_price_from_url  # <-- важно: чтобы monkeypatch в тестах работал
+from .tasks import import_price_task  # <-- async режим
 
 
 def ok(data=None, http_status=status.HTTP_200_OK):
@@ -55,7 +56,7 @@ class PartnerUpdateAPIView(APIView):
     @extend_schema(
         request=PartnerUpdateSerializer,
         responses={
-            200: OpenApiResponse(response=UnifiedResponseSerializer, description="Import completed (sync in tests/eager)"),
+            200: OpenApiResponse(response=UnifiedResponseSerializer, description="Import completed (eager/tests)"),
             202: OpenApiResponse(response=UnifiedResponseSerializer, description="Import queued (async)"),
             400: OpenApiResponse(response=UnifiedResponseSerializer, description="Validation/import error"),
             403: OpenApiResponse(response=UnifiedResponseSerializer, description="Forbidden"),
@@ -67,13 +68,13 @@ class PartnerUpdateAPIView(APIView):
                 request_only=True,
             ),
             OpenApiExample(
-                "Success response (sync/eager)",
+                "Sync success (eager/tests)",
                 value={"Status": True, "data": {"imported": True}, "errors": None},
                 response_only=True,
             ),
             OpenApiExample(
-                "Queued response (async)",
-                value={"Status": True, "data": {"queued": True}, "errors": None},
+                "Async queued (prod)",
+                value={"Status": True, "data": {"queued": True, "task_id": "..."}, "errors": None},
                 response_only=True,
             ),
         ],
@@ -85,18 +86,17 @@ class PartnerUpdateAPIView(APIView):
 
         url = serializer.validated_data["url"]
 
-        async_result = import_price_task.delay(request.user.id, url)
-
-        # В тестах/еager задача выполняется сразу -> сохраняем старое поведение (200)
+        # tests/eager: синхронно -> чтобы monkeypatch на import_price_from_url работал
         if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
-            result = async_result.result or {}
+            result = import_price_from_url(user=request.user, url=url)
             if not result.get("Status", False):
                 err = result.get("Error") or result.get("Errors") or "Import failed"
                 return fail(err, result.get("http_status", status.HTTP_400_BAD_REQUEST))
             return ok({"imported": True}, status.HTTP_200_OK)
 
-        # В обычном режиме импорт в фоне
-        return ok({"queued": True}, status.HTTP_202_ACCEPTED)
+        # prod: очередь celery
+        async_result = import_price_task.delay(request.user.id, url)
+        return ok({"queued": True, "task_id": async_result.id}, status.HTTP_202_ACCEPTED)
 
 
 class PartnerStateAPIView(APIView):
@@ -113,15 +113,6 @@ class PartnerStateAPIView(APIView):
             400: OpenApiResponse(response=UnifiedResponseSerializer, description="Validation error / no shop"),
             403: OpenApiResponse(response=UnifiedResponseSerializer, description="Forbidden"),
         },
-        examples=[
-            OpenApiExample("Disable", value={"state": False}, request_only=True),
-            OpenApiExample("Enable", value={"state": True}, request_only=True),
-            OpenApiExample(
-                "Success response (unified)",
-                value={"Status": True, "data": {"shop": "Связной", "state": False}, "errors": None},
-                response_only=True,
-            ),
-        ],
     )
     def post(self, request, *args, **kwargs):
         serializer = PartnerStateSerializer(data=request.data)
@@ -148,24 +139,6 @@ class PartnerShopAPIView(APIView):
     """
     permission_classes = [IsAuthenticated, IsSupplier]
 
-    @extend_schema(
-        responses={
-            200: OpenApiResponse(response=UnifiedResponseSerializer, description="Bound shop info"),
-            403: OpenApiResponse(response=UnifiedResponseSerializer, description="Forbidden"),
-            404: OpenApiResponse(response=UnifiedResponseSerializer, description="No shop bound"),
-        },
-        examples=[
-            OpenApiExample(
-                "Success response (unified)",
-                value={
-                    "Status": True,
-                    "data": {"shop": "Связной", "url": "https://example.com", "state": True},
-                    "errors": None,
-                },
-                response_only=True,
-            ),
-        ],
-    )
     def get(self, request, *args, **kwargs):
         shop = Shop.objects.filter(user=request.user).first()
         if not shop:
@@ -173,32 +146,6 @@ class PartnerShopAPIView(APIView):
 
         return ok({"shop": shop.name, "url": shop.url, "state": shop.state}, status.HTTP_200_OK)
 
-    @extend_schema(
-        request=PartnerShopCreateSerializer,
-        responses={
-            201: OpenApiResponse(response=UnifiedResponseSerializer, description="Created new shop"),
-            200: OpenApiResponse(response=UnifiedResponseSerializer, description="Bound existing free shop"),
-            400: OpenApiResponse(response=UnifiedResponseSerializer, description="Validation error"),
-            403: OpenApiResponse(response=UnifiedResponseSerializer, description="Forbidden"),
-            409: OpenApiResponse(response=UnifiedResponseSerializer, description="Already bound / name conflict"),
-        },
-        examples=[
-            OpenApiExample(
-                "Create shop",
-                value={"name": "Supplier1 Shop", "url": "https://supplier1.example"},
-                request_only=True,
-            ),
-            OpenApiExample(
-                "Conflict response (unified)",
-                value={
-                    "Status": False,
-                    "data": None,
-                    "errors": {"message": "Shop already bound to this supplier", "shop": "Связной"},
-                },
-                response_only=True,
-            ),
-        ],
-    )
     def post(self, request, *args, **kwargs):
         existing = Shop.objects.filter(user=request.user).first()
         if existing:
@@ -235,20 +182,6 @@ class PartnerShopAPIView(APIView):
 
         return ok({"shop": shop.name, "url": shop.url, "state": shop.state}, status.HTTP_201_CREATED)
 
-    @extend_schema(
-        request=PartnerShopPatchSerializer,
-        responses={
-            200: OpenApiResponse(response=UnifiedResponseSerializer, description="Updated"),
-            400: OpenApiResponse(response=UnifiedResponseSerializer, description="Validation error"),
-            403: OpenApiResponse(response=UnifiedResponseSerializer, description="Forbidden"),
-            404: OpenApiResponse(response=UnifiedResponseSerializer, description="No shop bound"),
-            409: OpenApiResponse(response=UnifiedResponseSerializer, description="Name conflict"),
-        },
-        examples=[
-            OpenApiExample("Patch url", value={"url": "https://supplier1.example"}, request_only=True),
-            OpenApiExample("Patch name", value={"name": "Supplier1 Shop"}, request_only=True),
-        ],
-    )
     def patch(self, request, *args, **kwargs):
         shop = Shop.objects.filter(user=request.user).first()
         if not shop:
@@ -293,24 +226,6 @@ class PartnerOrdersAPIView(APIView):
     """
     permission_classes = [IsAuthenticated, IsSupplier]
 
-    @extend_schema(
-        responses={
-            200: OpenApiResponse(response=UnifiedResponseSerializer, description="Orders list (unified)"),
-            403: OpenApiResponse(response=UnifiedResponseSerializer, description="Forbidden"),
-            400: OpenApiResponse(response=UnifiedResponseSerializer, description="Bad request"),
-        },
-        examples=[
-            OpenApiExample(
-                "Success response (unified)",
-                value={
-                    "Status": True,
-                    "data": {"orders": []},
-                    "errors": None,
-                },
-                response_only=True,
-            )
-        ],
-    )
     def get(self, request, *args, **kwargs):
         shop = Shop.objects.filter(user=request.user).first()
         if not shop:

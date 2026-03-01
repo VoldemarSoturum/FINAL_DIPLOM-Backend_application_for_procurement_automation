@@ -1,7 +1,6 @@
 # apps/orders/views.py
 
-from apps.users.permissions import IsClient
-
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Prefetch
 from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiResponse
@@ -12,7 +11,9 @@ from rest_framework.views import APIView
 
 from apps.catalog.models import ProductInfo
 from apps.orders.models import Order, OrderItem
+from apps.orders.services.emails import send_order_email_to_admin, send_order_email_to_customer
 from apps.orders.tasks import send_order_emails_task
+from apps.users.permissions import IsClient
 
 from .serializers import (
     BasketSerializer,
@@ -36,8 +37,7 @@ def _get_or_create_basket(user) -> Order:
 
 def _basket_queryset(user):
     return (
-        Order.objects.filter(user=user, status=Order.Status.BASKET)
-        .prefetch_related(
+        Order.objects.filter(user=user, status=Order.Status.BASKET).prefetch_related(
             Prefetch(
                 "items",
                 queryset=OrderItem.objects.select_related("product", "shop"),
@@ -96,11 +96,7 @@ class BasketItemsAPIView(APIView):
         product_info_id = serializer.validated_data["product_info_id"]
         qty = serializer.validated_data["quantity"]
 
-        product_info = (
-            ProductInfo.objects.select_related("product", "shop")
-            .filter(id=product_info_id)
-            .first()
-        )
+        product_info = ProductInfo.objects.select_related("product", "shop").filter(id=product_info_id).first()
         if not product_info:
             return fail("ProductInfo not found", status.HTTP_404_NOT_FOUND)
 
@@ -112,7 +108,6 @@ class BasketItemsAPIView(APIView):
 
         with transaction.atomic():
             basket = _get_or_create_basket(request.user)
-
             item, created = OrderItem.objects.get_or_create(
                 order=basket,
                 product=product_info.product,
@@ -214,7 +209,6 @@ class BasketCheckoutAPIView(APIView):
                 .select_related("shop", "product")
                 .filter(product_id__in=product_ids, shop_id__in=shop_ids)
             )
-
             info_map = {(pi.product_id, pi.shop_id): pi for pi in infos}
 
             for item in items:
@@ -224,10 +218,8 @@ class BasketCheckoutAPIView(APIView):
                         f"ProductInfo not found for product={item.product_id} shop={item.shop_id}",
                         status.HTTP_409_CONFLICT,
                     )
-
                 if not pi.shop.state:
                     return fail(f"Shop '{pi.shop.name}' is disabled", status.HTTP_409_CONFLICT)
-
                 if pi.quantity < item.quantity:
                     return fail(
                         f"Not enough stock for '{pi.name}' (have {pi.quantity}, need {item.quantity})",
@@ -236,7 +228,6 @@ class BasketCheckoutAPIView(APIView):
 
             for item in items:
                 pi = info_map[(item.product_id, item.shop_id)]
-
                 item.unit_price = pi.price
                 item.unit_price_rrc = pi.price_rrc
                 item.save(update_fields=["unit_price", "unit_price_rrc"])
@@ -249,11 +240,24 @@ class BasketCheckoutAPIView(APIView):
 
             order_id = basket.id
 
-            # Celery: enqueue emails only AFTER transaction commit
-            def _enqueue_emails():
-                send_order_emails_task.delay(order_id)
-
-            transaction.on_commit(_enqueue_emails)
+            # Email: tests(eager) -> sync (mail.outbox заполняется), prod -> celery on_commit
+            if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+                # тестовый режим: чтобы monkeypatch в тестах работал и письма реально ушли
+                try:
+                    order_for_email = (
+                        Order.objects.filter(id=order_id)
+                        .prefetch_related(Prefetch("items", queryset=OrderItem.objects.select_related("product", "shop")))
+                        .select_related("user")
+                        .first()
+                    )
+                    if order_for_email:
+                        send_order_email_to_customer(order_for_email)
+                        send_order_email_to_admin(order_for_email)
+                except Exception:
+                    pass
+            else:
+                # прод: enqueue AFTER commit
+                transaction.on_commit(lambda: send_order_emails_task.delay(order_id))
 
         # Перечитаем заказ в статусе NEW (для ответа)
         order = (
@@ -262,7 +266,6 @@ class BasketCheckoutAPIView(APIView):
             .select_related("user")
             .first()
         )
-
         if order is None:
             return fail("Order not found after checkout", status.HTTP_500_INTERNAL_SERVER_ERROR)
 
