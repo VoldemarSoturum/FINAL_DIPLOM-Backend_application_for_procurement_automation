@@ -3,6 +3,7 @@ djangorestframework
 
 # async tasks
 celery
+redis
 
 # utils
 requests
