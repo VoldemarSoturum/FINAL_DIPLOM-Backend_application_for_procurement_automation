@@ -83,3 +83,28 @@ def client_api(client_user):
     c = APIClient()
     c.force_authenticate(user=client_user)
     return c
+@pytest.fixture()
+def client_access(api_client, db):
+    """
+    JWT headers for a client user.
+    Returns (client, headers)
+    """
+    User = get_user_model()
+    u = User.objects.create_user(
+        username="client_access",
+        password="client_pass",
+        email="client_access@test.local",
+    )
+    profile, _ = UserProfile.objects.get_or_create(user=u)
+    profile.role = UserProfile.Role.CLIENT
+    profile.save(update_fields=["role"])
+
+    r = api_client.post(
+        "/api/auth/login/",
+        {"username": "client_access", "password": "client_pass"},
+        format="json",
+    )
+    assert r.status_code == 200, r.json()
+    token = r.json()["access"]
+
+    return api_client, {"HTTP_AUTHORIZATION": f"Bearer {token}"}
