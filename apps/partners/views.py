@@ -2,16 +2,21 @@
 
 from decimal import Decimal
 
+from django.conf import settings
 from django.db import transaction
 from django.utils.dateparse import parse_date
 from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiResponse
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.catalog.models import Shop
 from apps.orders.models import Order, OrderItem
 from apps.users.models import UserProfile
+from apps.users.permissions import IsSupplier
+from apps.partners.tasks import import_price_task
+
 from .serializers import (
     PartnerUpdateSerializer,
     PartnerStateSerializer,
@@ -19,10 +24,7 @@ from .serializers import (
     PartnerShopPatchSerializer,
     UnifiedResponseSerializer,
 )
-from .services.importer import import_price_from_url
 
-from rest_framework.permissions import IsAuthenticated
-from apps.users.permissions import IsSupplier
 
 def ok(data=None, http_status=status.HTTP_200_OK):
     return Response({"Status": True, "data": data, "errors": None}, status=http_status)
@@ -53,7 +55,8 @@ class PartnerUpdateAPIView(APIView):
     @extend_schema(
         request=PartnerUpdateSerializer,
         responses={
-            200: OpenApiResponse(response=UnifiedResponseSerializer, description="Import completed"),
+            200: OpenApiResponse(response=UnifiedResponseSerializer, description="Import completed (sync in tests/eager)"),
+            202: OpenApiResponse(response=UnifiedResponseSerializer, description="Import queued (async)"),
             400: OpenApiResponse(response=UnifiedResponseSerializer, description="Validation/import error"),
             403: OpenApiResponse(response=UnifiedResponseSerializer, description="Forbidden"),
         },
@@ -64,29 +67,36 @@ class PartnerUpdateAPIView(APIView):
                 request_only=True,
             ),
             OpenApiExample(
-                "Success response (unified)",
+                "Success response (sync/eager)",
                 value={"Status": True, "data": {"imported": True}, "errors": None},
+                response_only=True,
+            ),
+            OpenApiExample(
+                "Queued response (async)",
+                value={"Status": True, "data": {"queued": True}, "errors": None},
                 response_only=True,
             ),
         ],
     )
     def post(self, request, *args, **kwargs):
-        # denied = check_supplier(request)
-        # if denied:
-        #     return denied
-
         serializer = PartnerUpdateSerializer(data=request.data)
         if not serializer.is_valid():
             return fail(serializer.errors, status.HTTP_400_BAD_REQUEST)
 
         url = serializer.validated_data["url"]
 
-        result = import_price_from_url(user=request.user, url=url)
-        if not result.get("Status", False):
-            err = result.get("Error") or result.get("Errors") or "Import failed"
-            return fail(err, result.get("http_status", status.HTTP_400_BAD_REQUEST))
+        async_result = import_price_task.delay(request.user.id, url)
 
-        return ok({"imported": True}, status.HTTP_200_OK)
+        # В тестах/еager задача выполняется сразу -> сохраняем старое поведение (200)
+        if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+            result = async_result.result or {}
+            if not result.get("Status", False):
+                err = result.get("Error") or result.get("Errors") or "Import failed"
+                return fail(err, result.get("http_status", status.HTTP_400_BAD_REQUEST))
+            return ok({"imported": True}, status.HTTP_200_OK)
+
+        # В обычном режиме импорт в фоне
+        return ok({"queued": True}, status.HTTP_202_ACCEPTED)
 
 
 class PartnerStateAPIView(APIView):
@@ -114,10 +124,6 @@ class PartnerStateAPIView(APIView):
         ],
     )
     def post(self, request, *args, **kwargs):
-        # denied = check_supplier(request)
-        # if denied:
-        #     return denied
-
         serializer = PartnerStateSerializer(data=request.data)
         if not serializer.is_valid():
             return fail(serializer.errors, status.HTTP_400_BAD_REQUEST)
@@ -161,10 +167,6 @@ class PartnerShopAPIView(APIView):
         ],
     )
     def get(self, request, *args, **kwargs):
-        # denied = check_supplier(request)
-        # if denied:
-        #     return denied
-
         shop = Shop.objects.filter(user=request.user).first()
         if not shop:
             return fail("No shop bound to this supplier yet", status.HTTP_404_NOT_FOUND)
@@ -198,10 +200,6 @@ class PartnerShopAPIView(APIView):
         ],
     )
     def post(self, request, *args, **kwargs):
-        # denied = check_supplier(request)
-        # if denied:
-        #     return denied
-
         existing = Shop.objects.filter(user=request.user).first()
         if existing:
             return fail(
@@ -252,10 +250,6 @@ class PartnerShopAPIView(APIView):
         ],
     )
     def patch(self, request, *args, **kwargs):
-        # denied = check_supplier(request)
-        # if denied:
-        #     return denied
-
         shop = Shop.objects.filter(user=request.user).first()
         if not shop:
             return fail("No shop bound to this supplier yet", status.HTTP_404_NOT_FOUND)
@@ -310,27 +304,7 @@ class PartnerOrdersAPIView(APIView):
                 "Success response (unified)",
                 value={
                     "Status": True,
-                    "data": {
-                        "orders": [
-                            {
-                                "id": 12,
-                                "dt": "2026-02-24T18:20:00Z",
-                                "status": "new",
-                                "customer": {"id": 5, "username": "client1", "email": "client1@mail.com"},
-                                "items": [
-                                    {
-                                        "id": 33,
-                                        "product_id": 7,
-                                        "product_name": "iPhone",
-                                        "quantity": 2,
-                                        "unit_price": "100.00",
-                                        "unit_price_rrc": None,
-                                        "total": "200.00",
-                                    }
-                                ],
-                            }
-                        ]
-                    },
+                    "data": {"orders": []},
                     "errors": None,
                 },
                 response_only=True,
@@ -338,10 +312,6 @@ class PartnerOrdersAPIView(APIView):
         ],
     )
     def get(self, request, *args, **kwargs):
-        # denied = check_supplier(request)
-        # if denied:
-        #     return denied
-
         shop = Shop.objects.filter(user=request.user).first()
         if not shop:
             return fail("No shop bound to this supplier yet", status.HTTP_400_BAD_REQUEST)
