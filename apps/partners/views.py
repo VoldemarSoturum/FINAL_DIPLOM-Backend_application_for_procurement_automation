@@ -46,6 +46,57 @@ def check_supplier(request):
     return None
 
 
+# class PartnerUpdateAPIView(APIView):
+#     """
+#     POST /api/partner/update/
+#     body: {"url": "https://.../price.yaml"}
+#     """
+#     permission_classes = [IsAuthenticated, IsSupplier]
+#
+#     @extend_schema(
+#         request=PartnerUpdateSerializer,
+#         responses={
+#             200: OpenApiResponse(response=UnifiedResponseSerializer, description="Import completed (eager/tests)"),
+#             202: OpenApiResponse(response=UnifiedResponseSerializer, description="Import queued (async)"),
+#             400: OpenApiResponse(response=UnifiedResponseSerializer, description="Validation/import error"),
+#             403: OpenApiResponse(response=UnifiedResponseSerializer, description="Forbidden"),
+#         },
+#         examples=[
+#             OpenApiExample(
+#                 "Request example",
+#                 value={"url": "https://raw.githubusercontent.com/netology-code/python-final-diplom/master/data/shop1.yaml"},
+#                 request_only=True,
+#             ),
+#             OpenApiExample(
+#                 "Sync success (eager/tests)",
+#                 value={"Status": True, "data": {"imported": True}, "errors": None},
+#                 response_only=True,
+#             ),
+#             OpenApiExample(
+#                 "Async queued (prod)",
+#                 value={"Status": True, "data": {"queued": True, "task_id": "..."}, "errors": None},
+#                 response_only=True,
+#             ),
+#         ],
+#     )
+#     def post(self, request, *args, **kwargs):
+#         serializer = PartnerUpdateSerializer(data=request.data)
+#         if not serializer.is_valid():
+#             return fail(serializer.errors, status.HTTP_400_BAD_REQUEST)
+#
+#         url = serializer.validated_data["url"]
+#
+#         # tests/eager: синхронно -> чтобы monkeypatch на import_price_from_url работал
+#         if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+#             result = import_price_from_url(user=request.user, url=url)
+#             if not result.get("Status", False):
+#                 err = result.get("Error") or result.get("Errors") or "Import failed"
+#                 return fail(err, result.get("http_status", status.HTTP_400_BAD_REQUEST))
+#             return ok({"imported": True}, status.HTTP_200_OK)
+#
+#         # prod: очередь celery
+#         async_result = import_price_task.delay(request.user.id, url)
+#         return ok({"queued": True, "task_id": async_result.id}, status.HTTP_202_ACCEPTED)
 class PartnerUpdateAPIView(APIView):
     """
     POST /api/partner/update/
@@ -56,25 +107,26 @@ class PartnerUpdateAPIView(APIView):
     @extend_schema(
         request=PartnerUpdateSerializer,
         responses={
-            200: OpenApiResponse(response=UnifiedResponseSerializer, description="Import completed (eager/tests)"),
-            202: OpenApiResponse(response=UnifiedResponseSerializer, description="Import queued (async)"),
+            200: OpenApiResponse(response=UnifiedResponseSerializer, description="Import completed (sync/eager)"),
+            202: OpenApiResponse(response=UnifiedResponseSerializer, description="Import accepted (async)"),
             400: OpenApiResponse(response=UnifiedResponseSerializer, description="Validation/import error"),
             403: OpenApiResponse(response=UnifiedResponseSerializer, description="Forbidden"),
         },
         examples=[
             OpenApiExample(
                 "Request example",
-                value={"url": "https://raw.githubusercontent.com/netology-code/python-final-diplom/master/data/shop1.yaml"},
+                value={
+                    "url": "https://raw.githubusercontent.com/netology-code/python-final-diplom/master/data/shop1.yaml"},
                 request_only=True,
             ),
             OpenApiExample(
-                "Sync success (eager/tests)",
+                "Sync success",
                 value={"Status": True, "data": {"imported": True}, "errors": None},
                 response_only=True,
             ),
             OpenApiExample(
-                "Async queued (prod)",
-                value={"Status": True, "data": {"queued": True, "task_id": "..."}, "errors": None},
+                "Async accepted",
+                value={"Status": True, "data": {"task_id": "a1b2c3"}, "errors": None},
                 response_only=True,
             ),
         ],
@@ -86,18 +138,18 @@ class PartnerUpdateAPIView(APIView):
 
         url = serializer.validated_data["url"]
 
-        # tests/eager: синхронно -> чтобы monkeypatch на import_price_from_url работал
-        if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
-            result = import_price_from_url(user=request.user, url=url)
-            if not result.get("Status", False):
-                err = result.get("Error") or result.get("Errors") or "Import failed"
-                return fail(err, result.get("http_status", status.HTTP_400_BAD_REQUEST))
-            return ok({"imported": True}, status.HTTP_200_OK)
+        # ASYNC branch (real celery enqueue)
+        if not getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+            async_result = import_price_task.delay(user_id=request.user.id, url=url)
+            return ok({"task_id": async_result.id}, status.HTTP_202_ACCEPTED)
 
-        # prod: очередь celery
-        async_result = import_price_task.delay(request.user.id, url)
-        return ok({"queued": True, "task_id": async_result.id}, status.HTTP_202_ACCEPTED)
+        # SYNC branch (tests / eager)
+        result = import_price_from_url(user=request.user, url=url)
+        if not result.get("Status", False):
+            err = result.get("Error") or result.get("Errors") or "Import failed"
+            return fail(err, result.get("http_status", status.HTTP_400_BAD_REQUEST))
 
+        return ok({"imported": True}, status.HTTP_200_OK)
 
 class PartnerStateAPIView(APIView):
     """

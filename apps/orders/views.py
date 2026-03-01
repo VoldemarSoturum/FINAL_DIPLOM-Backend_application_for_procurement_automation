@@ -240,23 +240,8 @@ class BasketCheckoutAPIView(APIView):
 
             order_id = basket.id
 
-            # Email: tests(eager) -> sync (mail.outbox заполняется), prod -> celery on_commit
-            if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
-                # тестовый режим: чтобы monkeypatch в тестах работал и письма реально ушли
-                try:
-                    order_for_email = (
-                        Order.objects.filter(id=order_id)
-                        .prefetch_related(Prefetch("items", queryset=OrderItem.objects.select_related("product", "shop")))
-                        .select_related("user")
-                        .first()
-                    )
-                    if order_for_email:
-                        send_order_email_to_customer(order_for_email)
-                        send_order_email_to_admin(order_for_email)
-                except Exception:
-                    pass
-            else:
-                # прод: enqueue AFTER commit
+            # non-eager => enqueue AFTER commit (правильно для prod)
+            if not getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
                 transaction.on_commit(lambda: send_order_emails_task.delay(order_id))
 
         # Перечитаем заказ в статусе NEW (для ответа)
@@ -268,6 +253,15 @@ class BasketCheckoutAPIView(APIView):
         )
         if order is None:
             return fail("Order not found after checkout", status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # eager => отправляем синхронно прямо сейчас (чтобы tests/smoke видели mail.outbox)
+        if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+            try:
+                send_order_email_to_customer(order)
+                send_order_email_to_admin(order)
+            except Exception:
+                # позже можно заменить на логирование
+                pass
 
         return ok({"order": BasketSerializer(order).data}, status.HTTP_200_OK)
 
