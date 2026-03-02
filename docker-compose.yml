@@ -15,6 +15,9 @@ services:
     # ВАЖНО:
     # - 5432 на хосте у тебя занят локальным Postgres
     # - поэтому наружу пробрасываем на 5433
+    #
+    # ВНУТРИ docker-сети Postgres всё равно слушает 5432,
+    # и другие контейнеры должны ходить по HOST=db PORT=5432.
     ports:
       - "5433:5432"
 
@@ -38,7 +41,9 @@ services:
     # ВАЖНО:
     # - 6379 на хосте у тебя занят локальным redis
     # - поэтому наружу пробрасываем на 6380
-    # - ВНУТРИ docker-сети Redis всё равно слушает 6379
+    #
+    # ВНУТРИ docker-сети Redis всё равно слушает 6379,
+    # и другие контейнеры должны ходить на redis:6379.
     ports:
       - "6380:6379"
 
@@ -135,12 +140,8 @@ services:
   flower:
     image: mher/flower:2.0
 
-    # КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ:
-    # В этом образе дефолтный entrypoint запускает `python -m flower ...`,
-    # из-за чего `--port` не распознаётся.
-    # Поэтому мы ПЕРЕОПРЕДЕЛЯЕМ entrypoint на `celery`
-    # и запускаем Flower как: `celery ... flower --port=...`
-    # (официальный способ из документации Flower). :contentReference[oaicite:1]{index=1}
+    # Flower в этом образе корректнее запускать через celery:
+    # `celery --broker=... flower --port=...`
     entrypoint: ["celery"]
     command:
       - "--broker=redis://redis:6379/0"
@@ -148,8 +149,7 @@ services:
       - "--address=0.0.0.0"
       - "--port=5555"
 
-    # Если 5555 на хосте свободен — можешь вернуть 5555:5555.
-    # Чтобы избежать коллизий — оставляем 5556.
+    # Чтобы избежать коллизий на хосте — оставляем 5556
     ports:
       - "5556:5555"
 
@@ -158,6 +158,55 @@ services:
         condition: service_healthy
 
     restart: unless-stopped
+
+  # -------------------------
+  # TEST PROFILE: запуск pytest внутри docker-сети
+  # -------------------------
+  tests:
+    # Это НЕ стартует по умолчанию.
+    # Запускается только так:
+    #   docker compose --profile test run --rm tests
+    profiles: ["test"]
+
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    # Берём общие переменные (секреты/почта/и т.д.)
+    env_file:
+      - .env.docker
+
+    environment:
+      # ВАЖНО: тесты должны использовать тестовые настройки
+      DJANGO_SETTINGS_MODULE: config.settings_test_pg
+
+      # ВАЖНО: внутри контейнера "localhost" НЕ работает для db/redis.
+      # Ходим по именам сервисов docker-compose.
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+
+      PYTHONPATH: /app
+
+    volumes:
+      - .:/app
+
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    # Если в Dockerfile не ставятся dev-зависимости, можно оставить установку тут.
+    # Это медленнее, но гарантирует, что pytest есть.
+    # Если pytest уже в образе — просто замени команду на: "pytest -q"
+    command: >
+      bash -c "
+        pip install -q -r requirements-dev.txt &&
+        pytest -q
+      "
 
 volumes:
   pgdata:
