@@ -9,8 +9,14 @@ test-fast:
 test-cov:
 	pytest --cov-report=term-missing --cov-report=html
 
-# ЭТО цель для запуска ВНУТРИ контейнера web (docker compose run/exec web ...)
-# Т.е. здесь НЕТ docker compose, только pytest + env под compose-сеть.
+# ------------------------------------------------------------
+# test-docker: запуск ВНУТРИ контейнера (web / tests)
+# ВАЖНО:
+# - здесь НЕТ docker compose
+# - просто выставляем env под compose-сеть и запускаем pytest
+# Пример:
+#   docker compose exec web make test-docker
+# ------------------------------------------------------------
 test-docker:
 	DJANGO_SETTINGS_MODULE=config.settings_test_pg \
 	POSTGRES_HOST=db \
@@ -19,7 +25,12 @@ test-docker:
 	CELERY_RESULT_BACKEND=redis://redis:6379/1 \
 	pytest -q
 
-# ЭТО цель-обёртка для запуска С ХОСТА (одной командой)
+# ------------------------------------------------------------
+# test-docker-host: запуск С ХОСТА одной командой
+# Запускает pytest внутри контейнера web (compose-сеть видит db/redis по именам)
+# Пример:
+#   make test-docker-host
+# ------------------------------------------------------------
 test-docker-host:
 	docker compose run --rm \
 		-e DJANGO_SETTINGS_MODULE=config.settings_test_pg \
