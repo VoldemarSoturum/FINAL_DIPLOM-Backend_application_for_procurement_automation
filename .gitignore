@@ -26,3 +26,5 @@ media/
 # Coverage
 .coverage
 htmlcov/
+# celery beat runtime file
+celerybeat-schedule

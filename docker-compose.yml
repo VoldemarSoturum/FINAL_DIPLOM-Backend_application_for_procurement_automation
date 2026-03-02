@@ -1,0 +1,163 @@
+services:
+  # -------------------------
+  # PostgreSQL (в контейнере)
+  # -------------------------
+  db:
+    image: postgres:16-alpine
+    env_file:
+      - .env.docker
+    environment:
+      # postgres image использует только эти 3 переменные
+      POSTGRES_DB: ${POSTGRES_DB:-procurement_db}
+      POSTGRES_USER: ${POSTGRES_USER:-procurement_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-procurement_password-132345}
+
+    # ВАЖНО:
+    # - 5432 на хосте у тебя занят локальным Postgres
+    # - поэтому наружу пробрасываем на 5433
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+    restart: unless-stopped
+
+  # -------------------------
+  # Redis (в контейнере)
+  # -------------------------
+  redis:
+    image: redis:7-alpine
+
+    # ВАЖНО:
+    # - 6379 на хосте у тебя занят локальным redis
+    # - поэтому наружу пробрасываем на 6380
+    # - ВНУТРИ docker-сети Redis всё равно слушает 6379
+    ports:
+      - "6380:6379"
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+    restart: unless-stopped
+
+  # -------------------------
+  # Django (dev-сервер)
+  # -------------------------
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.docker
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings
+      PYTHONPATH: /app
+    volumes:
+      - .:/app
+
+    # ВАЖНО:
+    # - 8000 на хосте у тебя занят локальным Django
+    # - поэтому наружу пробрасываем на 8001
+    ports:
+      - "8001:8000"
+
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    command: >
+      bash -c "
+        python manage.py migrate &&
+        python manage.py runserver 0.0.0.0:8000
+      "
+
+    restart: unless-stopped
+
+  # -------------------------
+  # Celery worker
+  # -------------------------
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.docker
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings
+      PYTHONPATH: /app
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A config worker -l info
+    restart: unless-stopped
+
+  # -------------------------
+  # Celery beat
+  # -------------------------
+  celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.docker
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings
+      PYTHONPATH: /app
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A config beat -l info
+    restart: unless-stopped
+
+  # -------------------------
+  # Flower (мониторинг Celery)
+  # -------------------------
+  flower:
+    image: mher/flower:2.0
+
+    # КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ:
+    # В этом образе дефолтный entrypoint запускает `python -m flower ...`,
+    # из-за чего `--port` не распознаётся.
+    # Поэтому мы ПЕРЕОПРЕДЕЛЯЕМ entrypoint на `celery`
+    # и запускаем Flower как: `celery ... flower --port=...`
+    # (официальный способ из документации Flower). :contentReference[oaicite:1]{index=1}
+    entrypoint: ["celery"]
+    command:
+      - "--broker=redis://redis:6379/0"
+      - "flower"
+      - "--address=0.0.0.0"
+      - "--port=5555"
+
+    # Если 5555 на хосте свободен — можешь вернуть 5555:5555.
+    # Чтобы избежать коллизий — оставляем 5556.
+    ports:
+      - "5556:5555"
+
+    depends_on:
+      redis:
+        condition: service_healthy
+
+    restart: unless-stopped
+
+volumes:
+  pgdata:
