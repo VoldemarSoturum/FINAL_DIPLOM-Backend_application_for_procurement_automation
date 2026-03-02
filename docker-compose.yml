@@ -15,9 +15,6 @@ services:
     # ВАЖНО:
     # - 5432 на хосте у тебя занят локальным Postgres
     # - поэтому наружу пробрасываем на 5433
-    #
-    # ВНУТРИ docker-сети Postgres всё равно слушает 5432,
-    # и другие контейнеры должны ходить по HOST=db PORT=5432.
     ports:
       - "5433:5432"
 
@@ -41,9 +38,7 @@ services:
     # ВАЖНО:
     # - 6379 на хосте у тебя занят локальным redis
     # - поэтому наружу пробрасываем на 6380
-    #
-    # ВНУТРИ docker-сети Redis всё равно слушает 6379,
-    # и другие контейнеры должны ходить на redis:6379.
+    # - ВНУТРИ docker-сети Redis всё равно слушает 6379
     ports:
       - "6380:6379"
 
@@ -67,6 +62,13 @@ services:
     environment:
       DJANGO_SETTINGS_MODULE: config.settings
       PYTHONPATH: /app
+
+      # ВНУТРИ сети docker нужно ходить на сервисы по имени контейнера
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+
     volumes:
       - .:/app
 
@@ -82,6 +84,14 @@ services:
       redis:
         condition: service_healthy
 
+    # health endpoint: GET /
+    # curl уже есть у тебя в Dockerfile
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
     command: >
       bash -c "
         python manage.py migrate &&
@@ -91,9 +101,10 @@ services:
     restart: unless-stopped
 
   # -------------------------
-  # Celery worker
+  # Celery worker (профиль celery)
   # -------------------------
   celery_worker:
+    profiles: ["celery"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -102,20 +113,29 @@ services:
     environment:
       DJANGO_SETTINGS_MODULE: config.settings
       PYTHONPATH: /app
+
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+
     volumes:
       - .:/app
+
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+
     command: celery -A config worker -l info
     restart: unless-stopped
 
   # -------------------------
-  # Celery beat
+  # Celery beat (профиль celery)
   # -------------------------
   celery_beat:
+    profiles: ["celery"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -124,24 +144,34 @@ services:
     environment:
       DJANGO_SETTINGS_MODULE: config.settings
       PYTHONPATH: /app
+
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+
     volumes:
       - .:/app
+
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+
     command: celery -A config beat -l info
     restart: unless-stopped
 
   # -------------------------
-  # Flower (мониторинг Celery)
+  # Flower (мониторинг Celery) (профиль monitoring)
   # -------------------------
   flower:
+    profiles: ["monitoring"]
     image: mher/flower:2.0
 
-    # Flower в этом образе корректнее запускать через celery:
-    # `celery --broker=... flower --port=...`
+    # В этом образе дефолтный entrypoint запускает `python -m flower ...`,
+    # из-за чего `--port` не распознаётся.
+    # Поэтому переопределяем entrypoint на `celery` и запускаем Flower через celery-subcommand.
     entrypoint: ["celery"]
     command:
       - "--broker=redis://redis:6379/0"
@@ -149,7 +179,7 @@ services:
       - "--address=0.0.0.0"
       - "--port=5555"
 
-    # Чтобы избежать коллизий на хосте — оставляем 5556
+    # Чтобы избежать коллизий — оставляем 5556 (как у тебя)
     ports:
       - "5556:5555"
 
@@ -160,35 +190,23 @@ services:
     restart: unless-stopped
 
   # -------------------------
-  # TEST PROFILE: запуск pytest внутри docker-сети
+  # Тесты внутри compose-сети (профиль test)
   # -------------------------
   tests:
-    # Это НЕ стартует по умолчанию.
-    # Запускается только так:
-    #   docker compose --profile test run --rm tests
     profiles: ["test"]
-
     build:
       context: .
       dockerfile: Dockerfile
-
-    # Берём общие переменные (секреты/почта/и т.д.)
     env_file:
       - .env.docker
-
     environment:
-      # ВАЖНО: тесты должны использовать тестовые настройки
       DJANGO_SETTINGS_MODULE: config.settings_test_pg
+      PYTHONPATH: /app
 
-      # ВАЖНО: внутри контейнера "localhost" НЕ работает для db/redis.
-      # Ходим по именам сервисов docker-compose.
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
-
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
-
-      PYTHONPATH: /app
 
     volumes:
       - .:/app
@@ -199,14 +217,7 @@ services:
       redis:
         condition: service_healthy
 
-    # Если в Dockerfile не ставятся dev-зависимости, можно оставить установку тут.
-    # Это медленнее, но гарантирует, что pytest есть.
-    # Если pytest уже в образе — просто замени команду на: "pytest -q"
-    command: >
-      bash -c "
-        pip install -q -r requirements-dev.txt &&
-        pytest -q
-      "
+    command: pytest -q
 
 volumes:
   pgdata:
