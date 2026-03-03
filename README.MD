@@ -1,13 +1,13 @@
 # Retail Procurement API (Django + DRF + Celery)
 
 ## Документация
-- Этапы выполнения ТЗ (Roadmap проекта): `docs/TZ_STAGES.md`
+- Этапы выполнения ТЗ (Roadmap проекта): [`docs/TZ_STAGES.md`](docs/TZ_STAGES.md)
 
-- Описание API эндпоинов проекта, реализованных на DRF `APIView`: `docs/API_VIEWS.MD`
- 
-- Живые примеры запросов/ответов, которые использовались в проекте: `docs/API_EXAMPLES.MD`
+- Описание API эндпоинов проекта, реализованных на DRF `APIView`: [`docs/API_VIEWS.MD`](docs/API_VIEWS.MD)
 
-- Подробный гайд по Docker/Celery/тестам: `docs/DOCKER_AND_TESTS.md`
+- Живые примеры запросов/ответов, которые использовались в проекте: [`docs/API_EXAMPLES.MD`](docs/API_EXAMPLES.MD)
+
+- Подробный гайд по Docker/Celery/тестам: [`docs/DOCKER_AND_TESTS.md`](docs/DOCKER_AND_TESTS.md)
 
 ## Documentation
 
