@@ -5,9 +5,9 @@
 
 - [`Описание API эндпоинов проекта, реализованных на DRF APIView`](docs/API_VIEWS.MD)
 
-- Живые примеры запросов/ответов, которые использовались в проекте: [`docs/API_EXAMPLES.MD`](docs/API_EXAMPLES.MD)
+- [`Живые примеры запросов/ответов, которые использовались в проекте`](docs/API_EXAMPLES.MD)
 
-- Подробный гайд по Docker/Celery/тестам: [`docs/DOCKER_AND_TESTS.md`](docs/DOCKER_AND_TESTS.MD)
+- [`Подробный гайд по Docker/Celery/тестам`](docs/DOCKER_AND_TESTS.MD)
 
 ## Documentation
 
