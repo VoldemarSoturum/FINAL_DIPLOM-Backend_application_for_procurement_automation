@@ -201,6 +201,7 @@ make test-docker-host
 
 > Формат: `path — RU / EN`
 
+```text
 .
 ├── apps — RU: Django приложения / EN: Django apps
 │   ├── catalog — RU: каталог товаров / EN: catalog domain
@@ -287,5 +288,7 @@ make test-docker-host
 └── requirements.txt — RU: основные зависимости / EN: main deps
 
 ---
+
+```
 
 
