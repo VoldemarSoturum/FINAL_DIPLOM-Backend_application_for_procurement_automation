@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from typing import Any
 
@@ -7,18 +8,40 @@ import requests
 import yaml
 from django.db import transaction
 
-from apps.catalog.models import Category, Parameter, Product, ProductInfo, ProductParameter, Shop
+from apps.catalog.models import (
+    Category,
+    Parameter,
+    Product,
+    ProductInfo,
+    ProductParameter,
+    Shop,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def import_price_from_url(*, user, url: str) -> dict[str, Any]:
+    """
+    Stage 9.1:
+    - requests.RequestException НЕ “съедаем”, а пробрасываем наверх.
+      Тогда Celery-task (apps/partners/tasks.py) реально сможет сделать self.retry(...).
+    - Все ошибки формата/валидации (YAML, отсутствующие ключи, bad goods item и т.п.)
+      остаются здесь и превращаются в unified {"Status": False, ...}.
+    """
     try:
         resp = requests.get(url, timeout=20)
-        resp.raise_for_status()
+        resp.raise_for_status()  # HTTPError -> RequestException
+    except requests.RequestException:
+        # ВАЖНО: пусть Celery-task поймает это и сделает retry
+        raise
     except Exception as e:
+        # Любая не-сетевая “странная” ошибка получения
         return {"Status": False, "Error": f"Failed to fetch url: {e}", "http_status": 400}
 
     try:
         data = yaml.safe_load(resp.content)
+    except yaml.YAMLError as e:
+        return {"Status": False, "Error": f"Invalid YAML: {e}", "http_status": 400}
     except Exception as e:
         return {"Status": False, "Error": f"Invalid YAML: {e}", "http_status": 400}
 
@@ -39,9 +62,11 @@ def import_price_from_url(*, user, url: str) -> dict[str, Any]:
 
     with transaction.atomic():
         shop, _ = Shop.objects.get_or_create(name=shop_name)
+
         # Запрет импорта, если Shop выключен(state=False)
         if not shop.state:
             return {"Status": False, "Error": "Shop is disabled (state=false)", "http_status": 403}
+
         # Привязываем магазин к текущему поставщику (если пусто)
         if shop.user_id is None:
             shop.user = user
@@ -76,10 +101,13 @@ def import_price_from_url(*, user, url: str) -> dict[str, Any]:
 
             category_name = cat_id_to_name.get(cat_id)
             if not category_name:
-                return {"Status": False, "Error": f"Category id={cat_id} not found in YAML categories", "http_status": 400}
+                return {
+                    "Status": False,
+                    "Error": f"Category id={cat_id} not found in YAML categories",
+                    "http_status": 400,
+                }
 
             category_obj, _ = Category.objects.get_or_create(name=category_name)
-
             product, _ = Product.objects.get_or_create(category=category_obj, name=name)
 
             product_info, created = ProductInfo.objects.get_or_create(
