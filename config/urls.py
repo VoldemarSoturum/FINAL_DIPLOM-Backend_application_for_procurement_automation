@@ -53,4 +53,6 @@ urlpatterns = [
     path("api/catalog/", include("apps.catalog.urls")),
 
     path("api/", include("apps.orders.urls")),
+
+    path("api/auth/social/", include("social_django.urls", namespace="social")),
 ]

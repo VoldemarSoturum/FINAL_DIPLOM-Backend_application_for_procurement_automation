@@ -20,3 +20,6 @@ drf-spectacular
 djangorestframework-simplejwt
 
 python-dotenv
+
+
+social-auth-app-django
