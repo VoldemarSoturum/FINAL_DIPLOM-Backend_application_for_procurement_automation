@@ -1,11 +1,8 @@
 from django.contrib import admin
-
-# Register your models here.
-from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
-from .models import UserProfile, Contact
+from .models import Contact, UserProfile
 
 User = get_user_model()
 
@@ -39,9 +36,11 @@ class UserAdmin(DjangoUserAdmin):
     get_role.short_description = "Role"
     get_role.admin_order_field = "profile__role"
 
+
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
     list_display = ("id", "user", "role", "created_at", "updated_at")
+
 
 @admin.register(Contact)
 class ContactAdmin(admin.ModelAdmin):

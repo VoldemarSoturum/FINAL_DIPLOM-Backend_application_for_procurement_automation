@@ -12,19 +12,19 @@ from dotenv import load_dotenv
 # Base
 # -----------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
-
-# Loads env from project root: BASE_DIR/.env
 load_dotenv(BASE_DIR / ".env")
 
 DEBUG = os.getenv("DEBUG", "0") == "1"
 SECRET_KEY = os.getenv("SECRET_KEY", "unsafe-dev-secret-key")
-
 ALLOWED_HOSTS = ["*"]  # TODO: tighten in production
 
 # -----------------------------------------------------------------------------
 # Django apps
 # -----------------------------------------------------------------------------
 INSTALLED_APPS = [
+    # Baton (must be BEFORE django.contrib.admin)
+    "baton",
+
     # Django
     "django.contrib.admin",
     "django.contrib.auth",
@@ -32,17 +32,23 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+
     # Third-party
     "rest_framework",
     "drf_spectacular",
     "django_rest_passwordreset",
+
     # Local apps
     "apps.users.apps.UsersConfig",
     "apps.catalog",
     "apps.orders",
     "apps.partners",
+
     # Social auth
     "social_django",
+
+    # Baton autodiscover MUST be the last app
+    "baton.autodiscover",
 ]
 
 # -----------------------------------------------------------------------------
@@ -56,6 +62,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+
     # Social auth: graceful handling of OAuth exceptions (e.g. user canceled)
     "social_django.middleware.SocialAuthExceptionMiddleware",
 ]
@@ -75,7 +82,8 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
-                # Social auth: standard processors
+
+                # Social auth processors
                 "social_django.context_processors.backends",
                 "social_django.context_processors.login_redirect",
             ],
@@ -121,6 +129,7 @@ USE_TZ = True
 # Static
 # -----------------------------------------------------------------------------
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # -----------------------------------------------------------------------------
@@ -128,15 +137,18 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # -----------------------------------------------------------------------------
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-    # Auth (JWT is main; keep Session/Basic for admin/swagger/debug)
+
+    # Auth
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
         "rest_framework.authentication.BasicAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
+
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.AllowAny",
     ],
+
     # Throttling (Stage 9.2)
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.AnonRateThrottle",
@@ -160,7 +172,7 @@ SPECTACULAR_SETTINGS = {
 PASSWORD_RESET_TOKEN_EXPIRY_TIME = 24  # hours
 
 # -----------------------------------------------------------------------------
-# Email (Stage 1: console backend)
+# Email (console backend)
 # -----------------------------------------------------------------------------
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@retail.local")
@@ -195,40 +207,48 @@ SIMPLE_JWT = {
 # -----------------------------------------------------------------------------
 # Social Auth (social-auth-app-django)
 # -----------------------------------------------------------------------------
-# Where to redirect after success/failure
 LOGIN_REDIRECT_URL = os.getenv("LOGIN_REDIRECT_URL", "/api/docs/")
 LOGIN_ERROR_URL = os.getenv("LOGIN_ERROR_URL", "/api/docs/")
 
 AUTHENTICATION_BACKENDS = (
-    # OAuth providers:
     "social_core.backends.google.GoogleOAuth2",
     "social_core.backends.github.GithubOAuth2",
-    # Default Django auth:
     "django.contrib.auth.backends.ModelBackend",
 )
 
-# Credentials (social-auth reads from Django settings variables)
 SOCIAL_AUTH_GITHUB_KEY = os.getenv("SOCIAL_AUTH_GITHUB_KEY", "")
 SOCIAL_AUTH_GITHUB_SECRET = os.getenv("SOCIAL_AUTH_GITHUB_SECRET", "")
 
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", "")
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", "")
 
-# Optional scopes
 SOCIAL_AUTH_GOOGLE_OAUTH2_SCOPE = ["openid", "email", "profile"]
-
-# Allow creating a user on first social login
 SOCIAL_AUTH_CREATE_USERS = True
 
 # -----------------------------------------------------------------------------
 # Sessions (critical for OAuth "state")
 # -----------------------------------------------------------------------------
-# Stable session storage for OAuth state (prevents "Session data corrupted"/missing state)
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
 SESSION_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_SECURE = False
 CSRF_COOKIE_SECURE = False
 
-# If behind HTTPS proxy/terminator (optional; keep False for local HTTP)
 SOCIAL_AUTH_REDIRECT_IS_HTTPS = os.getenv("SOCIAL_AUTH_REDIRECT_IS_HTTPS", "0") == "1"
+
+# -----------------------------------------------------------------------------
+# Baton config
+# -----------------------------------------------------------------------------
+BATON = {
+    "SITE_HEADER": "Retail Procurement Admin",
+    "SITE_TITLE": "Retail Procurement",
+    "COPYRIGHT": "© Retail Procurement",
+    "POWERED_BY": "Django + DRF + Celery",
+
+    # UX
+    "CONFIRM_UNSAVED_CHANGES": True,
+    "SHOW_MULTIPART_UPLOADING": True,
+    "ENABLE_IMAGES_PREVIEW": True,
+    "CHANGELIST_FILTERS_IN_MODAL": True,
+    "CHANGEFORM_FIXED_SUBMIT_ROW": True,
+}
