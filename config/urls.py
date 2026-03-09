@@ -19,6 +19,9 @@ Including another URLconf
 from baton.autodiscover import admin
 from django.urls import path, include
 
+from django.conf import settings
+from django.http import Http404
+
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
@@ -29,13 +32,26 @@ from drf_spectacular.views import (
 )
 
 
+
 @api_view(["GET"])
 def health(request):
     return Response({"status": "ok"})
 
+@api_view(["GET"])
+def sentry_debug(request):
+    """
+    Stage 9.4:
+    endpoint для проверки Sentry — намеренно роняет 500.
+    В проде лучше не светить: включаем только при DEBUG.
+    """
+    if not settings.DEBUG:
+        raise Http404
+    1 / 0  # noqa: B018
 
 urlpatterns = [
     path("", health),
+
+    path("api/debug/sentry/", sentry_debug),
 
     path("baton/", include("baton.urls")),
 
@@ -59,3 +75,4 @@ urlpatterns = [
 
     path("api/auth/social/", include("social_django.urls", namespace="social")),
 ]
+

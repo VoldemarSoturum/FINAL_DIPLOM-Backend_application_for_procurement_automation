@@ -252,3 +252,25 @@ BATON = {
     "CHANGELIST_FILTERS_IN_MODAL": True,
     "CHANGEFORM_FIXED_SUBMIT_ROW": True,
 }
+
+# -----------------------------------------------------------------------------
+# Sentry (Stage 9.4)
+# -----------------------------------------------------------------------------
+SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
+if SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.celery import CeleryIntegration
+    from sentry_sdk.integrations.django import DjangoIntegration
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[
+            DjangoIntegration(),
+            CeleryIntegration(),
+        ],
+        environment=os.getenv("SENTRY_ENVIRONMENT", "local"),
+        release=os.getenv("SENTRY_RELEASE", "") or None,
+        send_default_pii=os.getenv("SENTRY_SEND_PII", "0") == "1",
+        traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.0")),
+    )
+

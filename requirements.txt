@@ -23,4 +23,7 @@ python-dotenv
 
 
 social-auth-app-django
+
 django-baton
+
+sentry-sdk
