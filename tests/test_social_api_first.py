@@ -91,3 +91,21 @@ def test_social_api_unsupported_backend_returns_404(api_client):
 
     r = api_client.get("/api/auth/social/api/complete/vk/?code=1&state=1")
     assert r.status_code == 404
+
+
+@pytest.mark.django_db
+def test_social_api_complete_backend_returns_no_user_400(api_client, monkeypatch):
+    """
+    API-first complete: если backend не вернул пользователя (None),
+    endpoint должен вернуть 400 (а не 200/JWT).
+    """
+    import apps.users.social_api as social_api
+
+    dummy = DummyBackend(auth_url_value="x", complete_user=None)
+
+    monkeypatch.setattr(social_api, "load_strategy", lambda req: object())
+    monkeypatch.setattr(social_api, "load_backend", lambda strategy, name, redirect_uri: dummy)
+
+    r = api_client.get("/api/auth/social/api/complete/github/?code=fake&state=fake")
+    assert r.status_code == 400, r.json()
+    assert "detail" in r.json()
