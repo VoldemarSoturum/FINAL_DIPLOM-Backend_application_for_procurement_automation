@@ -2,6 +2,7 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
+from versatileimagefield.fields import VersatileImageField
 
 class Shop(models.Model):
     name = models.CharField(max_length=255, unique=True)
@@ -55,6 +56,7 @@ class Product(models.Model):
     def __str__(self) -> str:
         return self.name
 
+    image = VersatileImageField(upload_to="products/", blank=True, null=True)
 
 class ProductInfo(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="product_infos")

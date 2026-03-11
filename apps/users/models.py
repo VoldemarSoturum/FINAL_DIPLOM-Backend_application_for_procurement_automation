@@ -1,8 +1,7 @@
-from django.db import models
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
-
+from versatileimagefield.fields import VersatileImageField
 
 class UserProfile(models.Model):
     class Role(models.TextChoices):
@@ -22,6 +21,8 @@ class UserProfile(models.Model):
     def __str__(self) -> str:
         return f"{self.user} ({self.role})"
 
+    # Аватар пользователя
+    avatar = VersatileImageField(upload_to="avatars/", blank=True, null=True)
 
 class Contact(models.Model):
     class ContactType(models.TextChoices):
