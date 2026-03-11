@@ -19,6 +19,8 @@ Including another URLconf
 from baton.autodiscover import admin
 from django.urls import path, include
 
+from django.conf.urls.static import static
+
 from django.conf import settings
 from django.http import Http404
 
@@ -74,5 +76,7 @@ urlpatterns = [
     path("api/", include("apps.orders.urls")),
 
     path("api/auth/social/", include("social_django.urls", namespace="social")),
-]
-
+] + (static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT) if settings.DEBUG else [])
+# раздача media в DEBUG
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

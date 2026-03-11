@@ -27,3 +27,6 @@ social-auth-app-django
 django-baton
 
 sentry-sdk
+
+Pillow
+django-versatileimagefield

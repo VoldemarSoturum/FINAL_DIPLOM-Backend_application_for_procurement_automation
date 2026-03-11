@@ -40,7 +40,7 @@ INSTALLED_APPS = [
 
     # Local apps
     "apps.users.apps.UsersConfig",
-    "apps.catalog",
+    "apps.catalog.apps.CatalogConfig",
     "apps.orders",
     "apps.partners",
 
@@ -131,6 +131,38 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# -----------------------------------------------------------------------------
+# Media (uploads)
+# -----------------------------------------------------------------------------
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+# -----------------------------------------------------------------------------
+# Thumbnails / renditions (VersatileImageField)
+# -----------------------------------------------------------------------------
+# Чтобы не создавать thumbnails "в момент запроса" (дорого),
+# выключаем on-demand и создаём наборы в Celery после загрузки.
+VERSATILEIMAGEFIELD_SETTINGS = {
+    "create_on_demand": False,
+}
+
+# Наборы renditions, которые будем "прогревать" в фоне.
+# Формат ключей из доков: thumbnail__WxH, crop__WxH и т.д. :contentReference[oaicite:1]{index=1}
+VERSATILEIMAGEFIELD_RENDITION_KEY_SETS = {
+    "avatar": [
+        ("full", "url"),
+        ("sm", "thumbnail__64x64"),
+        ("md", "thumbnail__256x256"),
+        ("sq", "crop__128x128"),
+    ],
+    "product": [
+        ("full", "url"),
+        ("sm", "thumbnail__300x300"),
+        ("md", "thumbnail__600x600"),
+        ("sq", "crop__400x400"),
+    ],
+}
 
 # -----------------------------------------------------------------------------
 # DRF + OpenAPI
