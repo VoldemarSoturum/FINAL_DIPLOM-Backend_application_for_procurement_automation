@@ -6,12 +6,15 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .serializers import RegisterSerializer
+from .serializers import RegisterSerializer, ContactSerializer, UserProfileSerializer
+
+from rest_framework.parsers import MultiPartParser, FormParser
+from apps.users.models import UserProfile
 
 from rest_framework.permissions import IsAuthenticated
 from apps.users.permissions import IsClient
 from .models import Contact
-from .serializers import ContactSerializer
+
 
 def ok(data=None, http_status=status.HTTP_200_OK):
     return Response({"Status": True, "data": data, "errors": None}, status=http_status)
@@ -71,3 +74,19 @@ class ContactDetailAPIView(APIView):
 
         contact.delete()
         return ok({"deleted": True})
+
+class ProfileAvatarUploadAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def patch(self, request, *args, **kwargs):
+        profile = UserProfile.objects.select_related("user").get(user=request.user)
+
+        file = request.FILES.get("avatar")
+        if not file:
+            return Response({"detail": "avatar file is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        profile.avatar = file
+        profile.save(update_fields=["avatar"])
+
+        return Response(UserProfileSerializer(profile).data, status=status.HTTP_200_OK)

@@ -1,14 +1,21 @@
-from django.shortcuts import render
-
-# Create your views here.
+# apps/catalog/views.py
 
 from django.db.models import Prefetch, Q
-from drf_spectacular.utils import extend_schema, OpenApiParameter
-from rest_framework import generics, filters
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
+from rest_framework import generics, filters, status
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from django.shortcuts import get_object_or_404
 
 from apps.catalog.models import Category, Shop, Product, ProductInfo, ProductParameter
-from .serializers import CategorySerializer, ShopSerializer, ProductSerializer
+from .serializers import (
+    CategorySerializer,
+    ShopSerializer,
+    ProductSerializer,
+    ProductImageUploadSerializer,
+)
 
 
 def _product_queryset():
@@ -95,3 +102,34 @@ class ProductDetailAPIView(generics.RetrieveAPIView):
 
     def get_queryset(self):
         return _product_queryset()
+
+
+class ProductImageUploadAPIView(APIView):
+    """
+    PATCH /api/catalog/products/{id}/image/ (multipart/form-data)
+    form-data:
+      - image: <file>
+    """
+    permission_classes = [AllowAny]  # на этом шаге можно оставить так
+    parser_classes = (MultiPartParser, FormParser)
+
+    @extend_schema(
+        request=ProductImageUploadSerializer,
+        responses={
+            200: OpenApiResponse(response=ProductSerializer, description="Product with uploaded image"),
+            400: OpenApiResponse(description="Validation error"),
+            404: OpenApiResponse(description="Product not found"),
+        },
+    )
+    def patch(self, request, pk: int, *args, **kwargs):
+        product = get_object_or_404(Product, pk=pk)
+
+        serializer = ProductImageUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        product.image = serializer.validated_data["image"]
+        product.save(update_fields=["image"])
+
+        # важно: передаём request в context, чтобы ImageField отдал абсолютный URL (если нужно)
+        out = ProductSerializer(product, context={"request": request}).data
+        return Response(out, status=status.HTTP_200_OK)

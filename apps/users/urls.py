@@ -1,7 +1,7 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from .views import RegisterAPIView, ContactListCreateAPIView, ContactDetailAPIView
+from .views import RegisterAPIView, ContactListCreateAPIView, ContactDetailAPIView, ProfileAvatarUploadAPIView
 
 from .social_api import SocialApiLoginAPIView, SocialApiCompleteAPIView
 
@@ -16,4 +16,6 @@ urlpatterns = [
     # API-first Social Auth (JWT)
     path("auth/social/api/login/<str:backend>/", SocialApiLoginAPIView.as_view(), name="social-api-login"),
     path("auth/social/api/complete/<str:backend>/", SocialApiCompleteAPIView.as_view(), name="social-api-complete"),
+
+    path("profile/avatar/", ProfileAvatarUploadAPIView.as_view()),
 ]
