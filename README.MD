@@ -1,3 +1,31 @@
+<!-- Integrations / Tech stack badges -->
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![Django](https://img.shields.io/badge/Django-5.2-092E20?logo=django&logoColor=white)
+![DRF](https://img.shields.io/badge/DRF-3.16-ff1709?logo=django&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
+![Celery](https://img.shields.io/badge/Celery-5.6-37814A?logo=celery&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+
+![JWT](https://img.shields.io/badge/JWT-SimpleJWT-000000?logo=jsonwebtokens&logoColor=white)
+![OAuth2](https://img.shields.io/badge/OAuth2-social--auth--app--django-3C3C3D?logo=oauth&logoColor=white)
+![GitHub OAuth](https://img.shields.io/badge/GitHub%20OAuth-181717?logo=github&logoColor=white)
+![Google OAuth](https://img.shields.io/badge/Google%20OAuth-4285F4?logo=google&logoColor=white)
+
+![Sentry](https://img.shields.io/badge/Sentry-2.x-362D59?logo=sentry&logoColor=white)
+![Cachalot](https://img.shields.io/badge/django--cachalot-ORM%20cache-0A0A0A?logo=django&logoColor=white)
+![django--redis](https://img.shields.io/badge/django--redis-cache-DC382D?logo=redis&logoColor=white)
+
+![pytest](https://img.shields.io/badge/pytest-9.0-0A9EDC?logo=pytest&logoColor=white)
+![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen?logo=codecov&logoColor=white)
+
+![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04-E95420?logo=ubuntu&logoColor=white)
+![pip](https://img.shields.io/badge/pip-packages-3775A9?logo=pypi&logoColor=white)
+![PyCharm](https://img.shields.io/badge/PyCharm-IDE-000000?logo=pycharm&logoColor=white)
+
+![Pillow](https://img.shields.io/badge/Pillow-12.1-3776AB?logo=python&logoColor=white)
+![VersatileImageField](https://img.shields.io/badge/VersatileImageField-3.1-4B8BBE?logo=python&logoColor=white)
+![Baton](https://img.shields.io/badge/django--baton-Admin%20UI-092E20?logo=django&logoColor=white)
 # Retail Procurement API (Django + DRF + Celery)
 
 ## Документация
