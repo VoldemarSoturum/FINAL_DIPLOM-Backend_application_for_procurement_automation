@@ -7,7 +7,17 @@
 
 - [`Живые примеры запросов/ответов, которые использовались в проекте`](docs/API_EXAMPLES.MD)
 
-- [`Подробный гайд по Docker/Celery/тестам`](docs/DOCKER_AND_TESTS.MD)
+- [`Описание Retry для импорта прайса (network passthrough → Celery retry)`](docs/IMPORT_PRICE_RETRY.MD)
+
+- [`Подробная инструкция по интеграции Social OAth, social login (social-auth-app-django) + API-first endpoints `](docs/SOCIAL_AUTH.MD)
+
+- [`Описание DRF throttling “по‑настоящему” (лимиты + предсказуемый тест)`](docs/DRF_THROTTLING.MD)
+
+- [`Интеграция Error tracking Sentry`](docs/SENTRY.MD)
+
+- [`Описание по внедрению картинок товаров/аватаров пользователей + асинхронная обработка (thumbnails) на Celery`](docs/IMAGES_AND_THUMBNAILS.MD)
+
+- [`Подробный гайд по применению ORM Query Cache (Stage 9.6) — Redis + django-cachalot`](docs/DOCKER_AND_TESTS.MD)
 
 ## Documentation
 
