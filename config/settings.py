@@ -19,6 +19,28 @@ SECRET_KEY = os.getenv("SECRET_KEY", "unsafe-dev-secret-key")
 ALLOWED_HOSTS = ["*"]  # TODO: tighten in production
 
 # -----------------------------------------------------------------------------
+# Redis cache + ORM cache (Stage 9.6)
+# -----------------------------------------------------------------------------
+# В docker: redis://redis:6379/2
+# Локально: redis://127.0.0.1:6379/2
+REDIS_CACHE_URL = os.getenv("REDIS_CACHE_URL", "redis://127.0.0.1:6379/2")
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": REDIS_CACHE_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        },
+        "TIMEOUT": 60 * 60,  # 1 hour
+    }
+}
+
+# Cachalot включаем/выключаем через env (удобно для замеров до/после)
+CACHALOT_ENABLED = os.getenv("CACHALOT_ENABLED", "1") == "1"
+CACHALOT_CACHE = "default"
+
+# -----------------------------------------------------------------------------
 # Django apps
 # -----------------------------------------------------------------------------
 INSTALLED_APPS = [
@@ -46,6 +68,9 @@ INSTALLED_APPS = [
 
     # Social auth
     "social_django",
+
+    # ORM cache
+    "cachalot",
 
     # Baton autodiscover MUST be the last app
     "baton.autodiscover",
@@ -141,14 +166,10 @@ MEDIA_ROOT = BASE_DIR / "media"
 # -----------------------------------------------------------------------------
 # Thumbnails / renditions (VersatileImageField)
 # -----------------------------------------------------------------------------
-# Чтобы не создавать thumbnails "в момент запроса" (дорого),
-# выключаем on-demand и создаём наборы в Celery после загрузки.
 VERSATILEIMAGEFIELD_SETTINGS = {
     "create_on_demand": False,
 }
 
-# Наборы renditions, которые будем "прогревать" в фоне.
-# Формат ключей из доков: thumbnail__WxH, crop__WxH и т.д. :contentReference[oaicite:1]{index=1}
 VERSATILEIMAGEFIELD_RENDITION_KEY_SETS = {
     "avatar": [
         ("full", "url"),
@@ -169,19 +190,14 @@ VERSATILEIMAGEFIELD_RENDITION_KEY_SETS = {
 # -----------------------------------------------------------------------------
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-
-    # Auth
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
         "rest_framework.authentication.BasicAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
-
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.AllowAny",
     ],
-
-    # Throttling (Stage 9.2)
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
@@ -276,8 +292,6 @@ BATON = {
     "SITE_TITLE": "Retail Procurement",
     "COPYRIGHT": "© Retail Procurement",
     "POWERED_BY": "Django + DRF + Celery",
-
-    # UX
     "CONFIRM_UNSAVED_CHANGES": True,
     "SHOW_MULTIPART_UPLOADING": True,
     "ENABLE_IMAGES_PREVIEW": True,
@@ -305,4 +319,3 @@ if SENTRY_DSN:
         send_default_pii=os.getenv("SENTRY_SEND_PII", "0") == "1",
         traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.0")),
     )
-
