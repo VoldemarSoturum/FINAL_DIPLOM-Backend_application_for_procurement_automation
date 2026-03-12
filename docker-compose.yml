@@ -66,8 +66,16 @@ services:
       # ВНУТРИ сети docker нужно ходить на сервисы по имени контейнера
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
+
+      # Celery
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+
+      # Stage 9.6: ORM/Cache
+      # redis DB:2 — отдельная база под кэш (0/1 заняты брокером/результатами)
+      REDIS_CACHE_URL: redis://redis:6379/2
+      # Удобно для сравнения "до/после" (можно выключать без правок кода)
+      CACHALOT_ENABLED: "1"
 
     volumes:
       - .:/app
@@ -116,8 +124,13 @@ services:
 
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
+
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+
+      # Stage 9.6
+      REDIS_CACHE_URL: redis://redis:6379/2
+      CACHALOT_ENABLED: "1"
 
     volumes:
       - .:/app
@@ -147,8 +160,13 @@ services:
 
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
+
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+
+      # Stage 9.6
+      REDIS_CACHE_URL: redis://redis:6379/2
+      CACHALOT_ENABLED: "1"
 
     volumes:
       - .:/app
@@ -205,8 +223,14 @@ services:
 
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
+
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+
+      # Stage 9.6 (в тестах можно оставить включённым, но если вдруг начнут флапать
+      # из-за кэша — просто поставь "0")
+      REDIS_CACHE_URL: redis://redis:6379/2
+      CACHALOT_ENABLED: "0"
 
     volumes:
       - .:/app
