@@ -9,6 +9,25 @@
 
 ---
 
+## Навигация по документации
+
+> Все ссылки — **относительные пути внутри репозитория**.
+
+- Описание API эндпоинтов проекта (APIView): `docs/API_VIEWS.md`
+- Примеры запросов/ответов (curl): `docs/API_EXAMPLES.md`
+- Подробно про Docker/Celery/тесты: `docs/DOCKER_AND_TESTS.md`
+
+### Stage 9 (доп. этапы после базового ТЗ)
+
+- 9.1 — Retry для импорта прайса: `docs/IMPORT_PRICE_RETRY.md`
+- 9.2 — DRF throttling: `docs/DRF_THROTTLING.md`
+- 9.3 — Social Auth (OAuth): `docs/SOCIAL_AUTH.md`
+- 9.4 — Sentry: `docs/SENTRY.md`
+- 9.5 — Аватары/картинки + thumbnails в Celery: `docs/IMAGES_AND_THUMBNAILS.md`
+- 9.6 — ORM cache (cachalot + Redis) + бенчмарк: `docs/ORM_CACHE.md`
+
+---
+
 ## Этап 0 — Инициализация проекта
 
 **Цель:** развернуть базовый Django-проект, подготовить структуру приложений.
@@ -198,6 +217,13 @@
 - Makefile цели для хоста и для запуска внутри контейнера
 - В Dockerfile установлен `make`, чтобы `docker compose run web make ...` работал
 
+### 7.7 — Advanced Celery (idempotency + retry/backoff)
+- Идемпотентность `send_order_emails_task` через cache-key `order:emails:sent:{order_id}`
+- Retry/backoff:
+  - eager (tests/dev): не ретраим, возвращаем `Status=False`
+  - worker: `self.retry()` с экспоненциальным backoff, ограничение `<= 60s`
+- `cleanup_stale_baskets_task` — периодическая чистка старых корзин
+
 **Артефакты:**
 - `apps/orders/tasks.py`, `apps/partners/tasks.py`
 - `config/celery.py`, `config/settings.py`
@@ -210,11 +236,6 @@
   - `tests/test_orders_tasks*.py`
   - `tests/test_partners_tasks*.py`
 
-**Коммиты (из вашего лога):**
-- `stage-7.3`, `stage-7.4` — Celery + async/eager tests
-- `stage-7.5.1`, `stage-7.5.2` — docker stack + health endpoint
-- `stage-7.6.3` — make в Dockerfile + Makefile targets
-
 ---
 
 ## Этап 8 — Документация (README + docs)
@@ -222,22 +243,95 @@
 **Цель:** оформить проект так, чтобы новый человек мог поднять и понять систему.
 
 **Сделано:**
-- `README.md` (RU + EN секции)
+- `README.MD` (RU + EN секции)
 - `docs/DOCKER_AND_TESTS.md` — подробно про запуск, порты, workers, тесты
 - `docs/API_VIEWS.md` — описание APIViews (что делает каждый endpoint)
 - `docs/API_EXAMPLES.md` — примеры запросов/ответов
 
 ---
 
-## Где смотреть примеры API
+## Этап 9 — Улучшения (Stage 9.x)
 
-- Swagger: `/api/docs/`
-- ReDoc: `/api/redoc/`
-- Примеры curl + ответы: `docs/API_EXAMPLES.md`
+> Stage 9 — набор практических улучшений, которые часто ожидают в коммерческих проектах: корректные ретраи, throttling, social login, мониторинг ошибок, обработка картинок и кэширование запросов.
+
+### 9.1 — Fix retry для импорта прайса (RequestException passthrough)
+
+**RU:**  
+Ранее сетевые ошибки ловились внутри `import_price_from_url()` и превращались в `{"Status": False, ...}`, из-за чего Celery‑ретраи **не срабатывали**. Исправлено: `requests.RequestException` пробрасывается наверх, а формат/валидация YAML остаются обработанными в сервисе. Добавлен тест.
+
+**EN:**  
+Network errors were swallowed inside `import_price_from_url()` resulting in no Celery retries. Fixed by re-raising `requests.RequestException` so Celery task can `retry()`. YAML format/validation errors remain handled locally. Added tests.
+
+**Docs:** `docs/IMPORT_PRICE_RETRY.md`
 
 ---
 
-## Проверка, что всё работает (быстрый чеклист)
+### 9.2 — DRF throttling «по-настоящему» (лимиты + тест)
+
+**RU:**  
+Добавлен базовый throttling (Anon/User) и **детерминированный тест**, чтобы проверка лимитов не флапала (учтён DRF cache + api_settings reload).
+
+**EN:**  
+Added DRF throttling (Anon/User) and a deterministic test (handles DRF settings caching + reload).
+
+**Docs:** `docs/DRF_THROTTLING.md`
+
+---
+
+### 9.3 — Social login (OAuth) + API-first endpoints + тесты
+
+**RU:**  
+Подключён `social-auth-app-django` (GitHub + Google), добавлены env‑переменные и стабильные sessions для OAuth state, задокументированы Redirect URI. Реализован **API-first вариант**: endpoint возвращает auth_url JSON, complete возвращает JWT. Добавлены unit‑тесты через monkeypatch `load_backend`, без зависимости от реального провайдера.
+
+**EN:**  
+Integrated `social-auth-app-django` (GitHub + Google), env vars and stable sessions for OAuth state, redirect URIs documented. Implemented **API-first** endpoints: login returns auth_url JSON, complete returns JWT. Added unit tests with monkeypatch for `load_backend`, no real provider required.
+
+**Docs:** `docs/SOCIAL_AUTH.md`
+
+---
+
+### 9.4 — Sentry (базовая интеграция + debug endpoint)
+
+**RU:**  
+Добавлена интеграция Sentry (Django + Celery), переменные окружения, endpoint `/api/debug/sentry/` (в DEBUG намеренно падает, чтобы проверить доставку issue).
+
+**EN:**  
+Added Sentry integration (Django + Celery), environment variables, debug endpoint `/api/debug/sentry/` (fails in DEBUG to generate an issue).
+
+**Docs:** `docs/SENTRY.md`
+
+---
+
+### 9.5 — Картинки/аватары + асинхронная обработка thumbnails на Celery
+
+**RU:**  
+Добавлены поля изображений (VersatileImageField): `Product.image`, `UserProfile.avatar`. Реализованы upload endpoints:
+- `PATCH /api/catalog/products/{id}/image/` (multipart)
+- `PATCH /api/profile/avatar/` (multipart, JWT)
+
+Добавлены фоновые задачи прогрева renditions (thumbnails/crops) после загрузки, подключены signals.  
+Тесты доведены до **100% coverage**.
+
+**EN:**  
+Added image fields (VersatileImageField): `Product.image`, `UserProfile.avatar`. Implemented upload endpoints and background warming tasks for renditions, wired with signals. Tests added, coverage reached **100%**.
+
+**Docs:** `docs/IMAGES_AND_THUMBNAILS.md`
+
+---
+
+### 9.6 — ORM cache (django-cachalot + Redis) + сравнение времени (before/after)
+
+**RU:**  
+Подключены `django-cachalot` и `django-redis`, настроен Redis cache backend. Включение/выключение кэша управляется переменной окружения `CACHALOT_ENABLED`. Добавлен тест, который подтверждает, что повторный ORM‑запрос кэшируется. В docs добавлены команды замера и реальные цифры.
+
+**EN:**  
+Added `django-cachalot` and `django-redis`, configured Redis cache backend. Toggle via `CACHALOT_ENABLED`. Added a test that verifies the second ORM query is cached. Documented benchmark commands and real before/after numbers.
+
+**Docs:** `docs/ORM_CACHE.md`
+
+---
+
+## Быстрый чеклист
 
 ### Local (host)
 ```bash
@@ -250,165 +344,14 @@ docker compose up -d --build
 docker compose ps
 ```
 
-### Тесты внутри контейнера web
+### Тесты внутри контейнера
 ```bash
-docker compose run --rm web bash -lc "make test-docker"
+docker compose --profile test up --build --abort-on-container-exit --exit-code-from tests
 ```
 
 ---
 
 ## Примечания
 
-- Сообщения вида `ERROR django.request: Internal Server Error: /api/basket/checkout/` в логах тестов — **нормальны**, если тест специально проверяет ветку 500/исключения (то есть ожидаемая «ошибка» как часть сценария).
-- Серые схемы в Swagger UI — обычно означает, что схемы **readOnly** или используются как вложенные объекты/ответы; это нормально для некоторых моделей (например, Basket/BasketItem).
-
-
-
-Ниже — **хронология выполнения проекта по этапам**, составленная по истории коммитов.  
-Формат: **RU + EN** (коротко и по делу). Внутри каждого этапа перечислены ключевые коммиты.
-
----
-
-## Stage 1 — Инициализация проекта / Project bootstrap
-
-**RU:** Создан Django‑проект, заведены приложения, добавлены базовые зависимости (DRF, Celery, Postgres, password reset).  
-**EN:** Django project created, apps initialized, base dependencies wired (DRF, Celery, Postgres, password reset).
-
-**Коммиты:**
-- `d039442` — stage-1: init django project + init apps + drf + celery + postgres + password reset
-
----
-
-## Stage 2 — База данных, модели, админка / DB models & Admin
-
-**RU:** Реализованы модели пользователей (профиль/роли/контакты), каталог (магазины/категории/товары/предложения/параметры), заказы (order/orderitem), улучшена админка и отображение роли.  
-**EN:** Implemented users (profile/roles/contacts), catalog (shops/categories/products/offers/parameters), orders (order/orderitem), admin improvements and role column.
-
-**Коммиты:**
-- `cac2454` — stage-2.1: users profile roles + contacts
-- `d478aab` — stage-2.2: catalog core models (shop/category/product/productinfo)
-- `50ebe1c` — stage-2.3: catalog product parameters models
-- `33b25f5` — stage-2.4: orders models (order/orderitem)
-- `3262c70` — stage-2.5: catalog aligns for yaml import (shop.user, productinfo external_id/model)
-- `a8a9282` — stage-2.6: role inline in admin + auto-create user profile
-- `a3c5601` — stage-2.7: register UserProfile model in admin
-- `d736afe` — stage-2.8: show user role in admin user list
-
----
-
-## Stage 3 — Поставщик, импорт прайса, партнёрские эндпоинты / Supplier flow & Import
-
-**RU:** Добавлен импорт YAML‑прайса (upsert/параметры/обнуление отсутствующих), эндпоинты поставщика: update/import, включение/выключение магазина, привязка/получение/изменение магазина, схемы Swagger, унификация ответов.  
-**EN:** Added YAML price import (upsert/parameters/zero-out missing), supplier endpoints: update/import, toggle shop state, bind/get/patch shop, Swagger schemas, unified responses.
-
-**Коммиты:**
-- `de0b58e` — stage-3.1: partner update endpoint skeleton + routing
-- `7b6fced` — stage-3.2: implement yaml price import (upsert + parameters + zero-out missing items)
-- `7f85017` — stage-3.4: deny price import when shop is disabled
-- `32916f6` — stage-3.5: partner endpoint to toggle shop state
-- `23e352a` — stage-3.6: partner endpoint to create/bind shop to supplier
-- `5b25748` — stage-3.7: add GET/PATCH for supplier shop (view/update bound shop)
-- `e4d7d6f` — stage-3.8: partner endpoints use serializers + spectacular schemas
-- `edcf6cd` — stage-3.9: unify partner API responses and swagger schema
-
----
-
-## Stage 4 — Корзина, оформление заказа, выдача заказов / Basket & Checkout
-
-**RU:** Реализована витрина каталога (read‑only API), корзина (CRUD items), checkout с проверками наличия и фиксацией цены, выдача заказов поставщику и email‑уведомления.  
-**EN:** Implemented catalog read-only API, basket CRUD, checkout with stock validation and price snapshot, supplier orders list, email notifications.
-
-**Коммиты:**
-- `029d2a5` — stage-4.1: catalog read-only api (categories/shops/products)
-- `bfcb7d4` — stage-4.2.1: catalog add setting in REST_FRAMEWORK
-- `50e32d0` — stage-4.2: basket api (get basket, add/update/delete items)
-- `4b6a47e` — stage-4.3: checkout (basket -> new) with stock checks and price snapshot
-- `dc598f9` — stage-4.4: partner orders list api (supplier sees own shop items)
-- `a6ec29d` — stage-4.4: partner orders list api (supplier sees own shop items) *(дубликат сообщения в истории)*
-- `1256c64` — stage-4.5: email notifications on checkout (customer + admin)
-
----
-
-## Stage 5 — Аутентификация, права, reset пароля, контакты / Auth, Permissions, Reset, Contacts
-
-**RU:** Регистрация и JWT‑аутентификация, password reset через сигнал, права для client/supplier, API контактов, выдача заказов клиента.  
-**EN:** Registration and JWT auth, password reset via signal, role-based permissions, contacts CRUD API, client orders list.
-
-**Коммиты:**
-- `0ca6f5a` — stage-5.1: auth register api (client) + routing
-- `297deb0` — stage-5.2: add jwt auth (simplejwt) login and refresh endpoints
-- `21cff17` — stage-5.3: password reset email via django-rest-passwordreset signal
-- `c469162` — stage-5.4.1: client orders api (list own orders)
-- `1f1f648` — stage-5.4.2: role-based permissions (client/supplier) for api endpoints
-- `dd39c3c` — stage-5.4.3: client contacts api (crud)
-
----
-
-## Stage 6 — Тесты и 100% покрытие / Tests & 100% coverage
-
-**RU:** Построен набор тестов, закрыты ветки/исключения/краевые случаи; достигнуто 100% покрытие, затем рефактор и выделение dev_tests_backup.  
-**EN:** Built full test suite covering edge cases and branches; reached 100% coverage; later refactored and moved draft/backup tests to dev_tests_backup.
-
-**Коммиты:**
-- `030170c` — stage-6.1: unify orders api responses (Status/data/errors)
-- `70c6a37` — stage-6.2: add postgres-based test setup, logging, progress bar and coverage
-- `01fa097` — stage-6.2: postgres test setup, coverage, and expanded partner importer tests
-- `919ef50` — stage-6.4: add catalog api tests (filters/search/ordering/detail)
-- `efedb66` — stage-6.5: add basket/checkout edge case tests
-- `04abbc2` — stage-6.6: cover email service and password reset signal branches
-- `1a5ebf1` — stage-6.7: cover register invalid and contacts api (crud + not found)
-- `504499c` — stage-6.8: cover partner views edge cases and filters
-- `7af7d39` — stage-6.9: cover validation branches and helper/signal paths
-- `b9340ab` — stage-6.10: cover more partner view branches (validation, bind, conflicts, orders)
-- `abf98c4` — stage-6.11: cover model string representations
-- `ff9cc65` — stage-6.12: cover remaining checkout branches in orders views
-- `8ca24a9` — stage-6.13: cover remaining model/user/order view branches
-- `2fc8bfc` — stage-6.14: cover importer error branches (http fail, bad yaml)
-- `da5036c` — stage-6.15: cover remaining model/order/importer branches to raise coverage
-- `dd195ea` — stage-6.16: add full test suite and reach 100% coverage
-- `fabc6a1` — stage-6.17a: cleanup duplicate draft tests
-- `53a88e0` — stage-6.17b: refactor tests + add dev_tests_backup (keep 100% coverage)
-
----
-
-## Stage 7 — Celery, асинхронность, Docker, advanced tasks / Celery + Docker + Advanced
-
-**RU:** Перенос “медленных” операций в Celery: импорт прайса и email‑отправка (eager vs async), совместимость тестов, Docker‑стек (web+db+redis+celery+flower), health endpoint, Makefile‑таргеты, advanced‑ретраи/backoff/idempotency и тестирование веток retry.  
-**EN:** Moved slow operations to Celery: imports and emails (eager vs async), kept test monkeypatch compatibility, introduced Docker stack (web+db+redis+celery+flower), health endpoint, Makefile targets, advanced retry/backoff/idempotency with tests for retry branches.
-
-**Коммиты:**
-- `d862d47` — stage-7.1.1: add redis client for celery broker
-- `40e0543` — stage-7.1.2: configure celery app (autodiscover)
-- `f1438fb` — stage-7.1.3: add celery settings (eager in tests)
-- `76d4e54` — stage-7.2.1: add celery task to send order emails
-- `26a728f` — stage-7.2.2: move checkout emails to celery task (on_commit)
-- `41ef29d` — stage-7.3.1: add celery task for partner price import
-- `e6a1c7c` — stage-7.3.2: move partner import to celery (eager sync, async 202)
-- `10a0bae` — stage-7.3.3: keep test monkeypatch compatibility + eager sync paths
-- `5c0ea22` — stage-7.3: move slow operations to Celery + update partner/order views
-- `317e3a5` — stage-7.4: add Celery async/eager + tasks tests and close remaining branches
-- `f937ea9` — stage-7.5.1: docker-ready settings + celery config + health endpoint
-- `30f9573` — stage-7.5.2: add docker-compose stack (web+db+redis+celery+flower) + docker env
-- `e603c40` — stage-7.6.1: fix catalog/partner tests + tweak compose/pytest config
-- `93df234` — stage-7.6.2: add Makefile targets + health endpoint test
-- `7d4e0d2` — stage-7.6.3: add make to Dockerfile + split Makefile docker test targets (host vs container)
-- `b12951e` — stage-7.6.4: fix docker test targets (host vs container) + align compose ports/services
-- `cb64b93` — stage-7.6.5: align docker-compose ports/services to avoid host collisions
-- `b623077` — stage-7.7.1: celery advanced tasks (idempotency/retry/backoff) + config/env updates
-- `21f9d02` — stage-7.7.2: add tests for celery retry branches + cleanup baskets task + tasks coverage
-
----
-
-## Stage 8 — Документация / Documentation
-
-**RU:** Подготовка README (RU+EN), отдельная документация по Docker/Tests, API Views и примеры API.  
-**EN:** Documentation pass: README (RU+EN), separate docs for Docker/Tests, API views, and API examples.
-
-**(Коммиты Stage 8 будут добавлены после фиксации документации.)**
-
----
-
-## Примечания / Notes
-
-- Два коммита `stage-4.4` присутствуют в истории как разные SHA с одинаковым сообщением — это нормально, просто отражено в списке.
+- Два коммита `stage-4.4` присутствуют в истории как разные SHA с одинаковым сообщением — это нормально.
 - В Stage 7 есть и локальные воркеры, и docker‑окружение: “host vs container” вынесено в Makefile таргеты.
