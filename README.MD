@@ -47,6 +47,8 @@
 
 - [`Подробный гайд по применению ORM Query Cache (Stage 9.6) — Redis + django-cachalot`](docs/DOCKER_AND_TESTS.MD)
 
+- [`Подробный гайд по применению Django-Silk (Stage 9.7) — Profiling with django-silk (SQL + Python) + Docker fixes`](docs/SILK.MD)
+
 ## Documentation
 
 - Detailed Docker/Celery/tests guide: `docs/DOCKER_AND_TESTS.md`
