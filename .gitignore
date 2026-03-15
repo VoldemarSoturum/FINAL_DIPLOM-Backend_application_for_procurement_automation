@@ -10,7 +10,8 @@ build/
 
 # Env files
 .env
-
+-d
+-H
 # Django
 db.sqlite3
 staticfiles/

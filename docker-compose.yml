@@ -7,26 +7,18 @@ services:
     env_file:
       - .env.docker
     environment:
-      # postgres image использует только эти 3 переменные
       POSTGRES_DB: ${POSTGRES_DB:-procurement_db}
       POSTGRES_USER: ${POSTGRES_USER:-procurement_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-procurement_password-132345}
-
-    # ВАЖНО:
-    # - 5432 на хосте у тебя занят локальным Postgres
-    # - поэтому наружу пробрасываем на 5433
     ports:
       - "5433:5432"
-
     volumes:
       - pgdata:/var/lib/postgresql/data
-
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 20
-
     restart: unless-stopped
 
   # -------------------------
@@ -34,20 +26,13 @@ services:
   # -------------------------
   redis:
     image: redis:7-alpine
-
-    # ВАЖНО:
-    # - 6379 на хосте у тебя занят локальным redis
-    # - поэтому наружу пробрасываем на 6380
-    # - ВНУТРИ docker-сети Redis всё равно слушает 6379
     ports:
       - "6380:6379"
-
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 20
-
     restart: unless-stopped
 
   # -------------------------
@@ -63,7 +48,7 @@ services:
       DJANGO_SETTINGS_MODULE: config.settings
       PYTHONPATH: /app
 
-      # ВНУТРИ сети docker нужно ходить на сервисы по имени контейнера
+      # DB внутри compose-сети
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
 
@@ -71,41 +56,53 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
 
-      # Stage 9.6: ORM/Cache
-      # redis DB:2 — отдельная база под кэш (0/1 заняты брокером/результатами)
+      # Stage 9.6: ORM/Cache (Redis DB:2)
       REDIS_CACHE_URL: redis://redis:6379/2
-      # Удобно для сравнения "до/после" (можно выключать без правок кода)
-      CACHALOT_ENABLED: "1"
+      CACHALOT_ENABLED: "${CACHALOT_ENABLED:-1}"
+
+      # Stage 9.7: django-silk
+      SILK_ENABLED: "${SILK_ENABLED:-0}"
+      SILKY_INTERCEPT_PERCENT: "${SILKY_INTERCEPT_PERCENT:-100}"
+      SILKY_PYTHON_PROFILER: "${SILKY_PYTHON_PROFILER:-0}"
+      # ВАЖНО: чтобы не было /accounts/login/
+      LOGIN_URL: /admin/login/
+
+      # Stage 9.4: Sentry
+      SENTRY_DSN: "${SENTRY_DSN:-}"
+      SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-docker}"
+      SENTRY_RELEASE: "${SENTRY_RELEASE:-}"
+      SENTRY_TRACES_SAMPLE_RATE: "${SENTRY_TRACES_SAMPLE_RATE:-0.0}"
+      SENTRY_SEND_PII: "${SENTRY_SEND_PII:-0}"
+
+      # Stage 9.3: Social Auth (OAuth)
+      SOCIAL_AUTH_GITHUB_KEY: "${SOCIAL_AUTH_GITHUB_KEY:-}"
+      SOCIAL_AUTH_GITHUB_SECRET: "${SOCIAL_AUTH_GITHUB_SECRET:-}"
+      SOCIAL_AUTH_GOOGLE_OAUTH2_KEY: "${SOCIAL_AUTH_GOOGLE_OAUTH2_KEY:-}"
+      SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET: "${SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET:-}"
+      SOCIAL_AUTH_REDIRECT_IS_HTTPS: "${SOCIAL_AUTH_REDIRECT_IS_HTTPS:-0}"
+
+      LOGIN_REDIRECT_URL: "${LOGIN_REDIRECT_URL:-/api/docs/}"
+      LOGIN_ERROR_URL: "${LOGIN_ERROR_URL:-/api/docs/}"
 
     volumes:
       - .:/app
-
-    # ВАЖНО:
-    # - 8000 на хосте у тебя занят локальным Django
-    # - поэтому наружу пробрасываем на 8001
     ports:
       - "8001:8000"
-
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-
-    # health endpoint: GET /
-    # curl уже есть у тебя в Dockerfile
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/ || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 20
-
     command: >
       bash -c "
         python manage.py migrate &&
         python manage.py runserver 0.0.0.0:8000
       "
-
     restart: unless-stopped
 
   # -------------------------
@@ -128,19 +125,22 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
 
-      # Stage 9.6
       REDIS_CACHE_URL: redis://redis:6379/2
-      CACHALOT_ENABLED: "1"
+      CACHALOT_ENABLED: "${CACHALOT_ENABLED:-1}"
+
+      SENTRY_DSN: "${SENTRY_DSN:-}"
+      SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-docker}"
+      SENTRY_RELEASE: "${SENTRY_RELEASE:-}"
+      SENTRY_TRACES_SAMPLE_RATE: "${SENTRY_TRACES_SAMPLE_RATE:-0.0}"
+      SENTRY_SEND_PII: "${SENTRY_SEND_PII:-0}"
 
     volumes:
       - .:/app
-
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-
     command: celery -A config worker -l info
     restart: unless-stopped
 
@@ -164,19 +164,22 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
 
-      # Stage 9.6
       REDIS_CACHE_URL: redis://redis:6379/2
-      CACHALOT_ENABLED: "1"
+      CACHALOT_ENABLED: "${CACHALOT_ENABLED:-1}"
+
+      SENTRY_DSN: "${SENTRY_DSN:-}"
+      SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-docker}"
+      SENTRY_RELEASE: "${SENTRY_RELEASE:-}"
+      SENTRY_TRACES_SAMPLE_RATE: "${SENTRY_TRACES_SAMPLE_RATE:-0.0}"
+      SENTRY_SEND_PII: "${SENTRY_SEND_PII:-0}"
 
     volumes:
       - .:/app
-
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-
     command: celery -A config beat -l info
     restart: unless-stopped
 
@@ -186,25 +189,17 @@ services:
   flower:
     profiles: ["monitoring"]
     image: mher/flower:2.0
-
-    # В этом образе дефолтный entrypoint запускает `python -m flower ...`,
-    # из-за чего `--port` не распознаётся.
-    # Поэтому переопределяем entrypoint на `celery` и запускаем Flower через celery-subcommand.
     entrypoint: ["celery"]
     command:
       - "--broker=redis://redis:6379/0"
       - "flower"
       - "--address=0.0.0.0"
       - "--port=5555"
-
-    # Чтобы избежать коллизий — оставляем 5556 (как у тебя)
     ports:
       - "5556:5555"
-
     depends_on:
       redis:
         condition: service_healthy
-
     restart: unless-stopped
 
   # -------------------------
@@ -227,20 +222,28 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
 
-      # Stage 9.6 (в тестах можно оставить включённым, но если вдруг начнут флапать
-      # из-за кэша — просто поставь "0")
+      # В тестах обычно выключаем ORM cache чтобы не было флапа
       REDIS_CACHE_URL: redis://redis:6379/2
       CACHALOT_ENABLED: "0"
 
+      # Silk в тестах выключен
+      SILK_ENABLED: "0"
+      LOGIN_URL: "/admin/login/"
+
+      # Sentry опционально
+      SENTRY_DSN: "${SENTRY_DSN:-}"
+      SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-test}"
+      SENTRY_RELEASE: "${SENTRY_RELEASE:-}"
+      SENTRY_TRACES_SAMPLE_RATE: "${SENTRY_TRACES_SAMPLE_RATE:-0.0}"
+      SENTRY_SEND_PII: "${SENTRY_SEND_PII:-0}"
+
     volumes:
       - .:/app
-
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-
     command: pytest -q
 
 volumes:
