@@ -80,3 +80,5 @@ urlpatterns = [
 # раздача media в DEBUG
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+if getattr(settings, "SILK_ENABLED", False) and ("silk" in settings.INSTALLED_APPS):
+    urlpatterns += [path("silk/", include("silk.urls", namespace="silk"))]
