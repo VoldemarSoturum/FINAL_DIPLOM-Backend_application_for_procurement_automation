@@ -1,5 +1,4 @@
 # config/settings.py
-
 from __future__ import annotations
 
 import os
@@ -18,6 +17,10 @@ DEBUG = os.getenv("DEBUG", "0") == "1"
 SECRET_KEY = os.getenv("SECRET_KEY", "unsafe-dev-secret-key")
 ALLOWED_HOSTS = ["*"]  # TODO: tighten in production
 
+# ВАЖНО: Silk (и вообще Django auth redirects) используют LOGIN_URL
+# По умолчанию Django ставит /accounts/login/, у нас такого роута нет.
+LOGIN_URL = os.getenv("LOGIN_URL", "/admin/login/")
+
 # -----------------------------------------------------------------------------
 # Redis cache + ORM cache (Stage 9.6)
 # -----------------------------------------------------------------------------
@@ -29,9 +32,7 @@ CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": REDIS_CACHE_URL,
-        "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient",
-        },
+        "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
         "TIMEOUT": 60 * 60,  # 1 hour
     }
 }
@@ -39,6 +40,11 @@ CACHES = {
 # Cachalot включаем/выключаем через env (удобно для замеров до/после)
 CACHALOT_ENABLED = os.getenv("CACHALOT_ENABLED", "1") == "1"
 CACHALOT_CACHE = "default"
+
+# -----------------------------------------------------------------------------
+# Feature toggles (Stage 9.7: Silk)
+# -----------------------------------------------------------------------------
+SILK_ENABLED = os.getenv("SILK_ENABLED", "0") == "1"
 
 # -----------------------------------------------------------------------------
 # Django apps
@@ -72,16 +78,21 @@ INSTALLED_APPS = [
     # ORM cache
     "cachalot",
 
-    # Baton autodiscover MUST be the last app
+    # Baton autodiscover MUST be the last app (всегда последним!)
     "baton.autodiscover",
 ]
+
+# Если Silk включён — добавляем его ДО baton.autodiscover (а baton.autodiscover оставляем последним)
+if SILK_ENABLED:
+    # вставим silk прямо перед последним элементом (baton.autodiscover)
+    INSTALLED_APPS.insert(len(INSTALLED_APPS) - 1, "silk")
 
 # -----------------------------------------------------------------------------
 # Middleware
 # -----------------------------------------------------------------------------
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",  # важен для OAuth state
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -91,6 +102,10 @@ MIDDLEWARE = [
     # Social auth: graceful handling of OAuth exceptions (e.g. user canceled)
     "social_django.middleware.SocialAuthExceptionMiddleware",
 ]
+
+# SilkyMiddleware должен быть максимально рано (чтобы перехватить всё)
+if SILK_ENABLED:
+    MIDDLEWARE = ["silk.middleware.SilkyMiddleware"] + MIDDLEWARE
 
 ROOT_URLCONF = "config.urls"
 
@@ -107,7 +122,6 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
-
                 # Social auth processors
                 "social_django.context_processors.backends",
                 "social_django.context_processors.login_redirect",
@@ -166,9 +180,7 @@ MEDIA_ROOT = BASE_DIR / "media"
 # -----------------------------------------------------------------------------
 # Thumbnails / renditions (VersatileImageField)
 # -----------------------------------------------------------------------------
-VERSATILEIMAGEFIELD_SETTINGS = {
-    "create_on_demand": False,
-}
+VERSATILEIMAGEFIELD_SETTINGS = {"create_on_demand": False}
 
 VERSATILEIMAGEFIELD_RENDITION_KEY_SETS = {
     "avatar": [
@@ -195,9 +207,8 @@ REST_FRAMEWORK = {
         "rest_framework.authentication.BasicAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
-    "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.AllowAny",
-    ],
+    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],
+    # Throttling (Stage 9.2)
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
@@ -310,12 +321,41 @@ if SENTRY_DSN:
 
     sentry_sdk.init(
         dsn=SENTRY_DSN,
-        integrations=[
-            DjangoIntegration(),
-            CeleryIntegration(),
-        ],
+        integrations=[DjangoIntegration(), CeleryIntegration()],
         environment=os.getenv("SENTRY_ENVIRONMENT", "local"),
         release=os.getenv("SENTRY_RELEASE", "") or None,
         send_default_pii=os.getenv("SENTRY_SEND_PII", "0") == "1",
         traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.0")),
     )
+
+# -----------------------------------------------------------------------------
+# Silk settings (Stage 9.7)
+# -----------------------------------------------------------------------------
+if SILK_ENABLED:
+    # Доступ к интерфейсу Silk — только суперюзеру
+    SILKY_AUTHENTICATION = True
+    SILKY_AUTHORISATION = True
+    SILKY_PERMISSIONS = lambda user: bool(getattr(user, "is_superuser", False))
+
+    # Лимиты безопасности
+    SILKY_MAX_REQUEST_BODY_SIZE = 1024
+    SILKY_MAX_RESPONSE_BODY_SIZE = 1024
+    SILKY_MAX_RECORDED_REQUESTS = 10_000
+    SILKY_MAX_RECORDED_REQUESTS_CHECK_PERCENT = 10
+
+    # Sampling
+    SILKY_INTERCEPT_PERCENT = int(os.getenv("SILKY_INTERCEPT_PERCENT", "100"))
+
+    # Чтобы не засорять Silk: игнорим админку/батон/сам silk/доки
+    SILKY_IGNORE_PATHS = [
+        r"^/admin/.*",
+        r"^/baton/.*",
+        r"^/silk/.*",
+        r"^/api/schema/.*",
+        r"^/api/docs/.*",
+        r"^/api/redoc/.*",
+    ]
+
+    # Python profiler (опционально)
+    SILKY_PYTHON_PROFILER = os.getenv("SILKY_PYTHON_PROFILER", "0") == "1"
+    SILKY_PYTHON_PROFILER_EXTENDED_FILE_NAME = True
