@@ -7,13 +7,25 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# system deps for psycopg2-binary обычно не нужны, но pg_isready/ssl и т.п. полезны
+# -----------------------------------------------------------------------------
+# System deps
+# -----------------------------------------------------------------------------
+# Нужно для:
+# - curl (healthcheck / отладка)
+# - make (твои make targets)
+# - libmagic (python-magic -> django-versatileimagefield)
+#
+# Важно: ставим в одном RUN, чтобы слои не дублировали apt-get update.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    make \
+    libmagic1 \
+    libmagic-mgc \
     && rm -rf /var/lib/apt/lists/*
-RUN apt-get update && apt-get install -y --no-install-recommends make \
-    && rm -rf /var/lib/apt/lists/*
-# Сначала зависимости — для кеширования слоёв
+
+# -----------------------------------------------------------------------------
+# Python deps (слои кешируются лучше, чем если копировать весь проект до pip install)
+# -----------------------------------------------------------------------------
 COPY requirements.txt /app/requirements.txt
 COPY requirements-dev.txt /app/requirements-dev.txt
 
@@ -21,7 +33,9 @@ RUN pip install --upgrade pip \
  && pip install -r /app/requirements.txt \
  && if [ -f /app/requirements-dev.txt ]; then pip install -r /app/requirements-dev.txt; fi
 
-# Потом код
+# -----------------------------------------------------------------------------
+# App code
+# -----------------------------------------------------------------------------
 COPY . /app
 
 # По умолчанию ничего не запускаем — команды задаёт docker-compose

@@ -35,3 +35,7 @@ django-versatileimagefield
 django-redis
 django-cachalot
 
+django-silk
+
+
+

@@ -20,6 +20,7 @@ django-baton==5.1.2
 django-cachalot==2.9.0
 django-redis==6.0.0
 django-rest-passwordreset==1.5.0
+django-silk==5.5.0
 django-stubs==5.2.9
 django-stubs-ext==5.2.9
 django-versatileimagefield==3.1
@@ -27,6 +28,7 @@ djangorestframework==3.16.1
 djangorestframework-stubs==3.16.8
 djangorestframework_simplejwt==5.5.1
 drf-spectacular==0.29.0
+gprof2dot==2025.4.14
 idna==3.11
 inflection==0.5.1
 iniconfig==2.3.0
